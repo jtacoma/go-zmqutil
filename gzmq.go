@@ -17,6 +17,8 @@ type Socket interface {
 
 type socket struct {
 	main    zmq.Socket    // the socket this struct abstracts
+	msgSend zmq.Socket    //inproc for sending messages to pumpSock()
+	msgRecv zmq.Socket    //inproc for reciving messages in pumpSock()
 	cmdSend zmq.Socket    // inproc for sending commands to pumpSock()
 	cmdRecv zmq.Socket    // inproc for receving commands in pumpSock()
 	recv    chan [][]byte // messages that have been received
@@ -24,30 +26,44 @@ type socket struct {
 	cmd     chan [][]byte // commands to be processed
 }
 
+func newPair(c zmq.Context) (send zmq.Socket, recv zmq.Socket, err error) {
+	send, err = c.NewSocket(zmq.PUSH)
+	if err != nil {
+		return
+	}
+	recv, err = c.NewSocket(zmq.PULL)
+	if err != nil {
+		return
+	}
+	addr := newInprocAddress()
+	err = send.Bind(addr)
+	if err != nil {
+		return
+	}
+	err = recv.Connect(addr)
+	if err != nil {
+		return
+	}
+	return
+}
+
 func NewSocket(c zmq.Context, t zmq.SocketType) (Socket, error) {
 	main, err := c.NewSocket(t)
 	if err != nil {
 		return nil, err
 	}
-	cmdSend, err := c.NewSocket(zmq.PUSH)
+	cmdSend, cmdRecv, err := newPair(c)
 	if err != nil {
 		return nil, err
 	}
-	cmdRecv, err := c.NewSocket(zmq.PULL)
-	if err != nil {
-		return nil, err
-	}
-	cmdAddr := newInprocAddress()
-	err = cmdSend.Bind(cmdAddr)
-	if err != nil {
-		return nil, err
-	}
-	err = cmdRecv.Connect(cmdAddr)
+	msgSend, msgRecv, err := newPair(c)
 	if err != nil {
 		return nil, err
 	}
 	result := &socket{
 		main:    main,
+		msgSend: msgSend,
+		msgRecv: msgRecv,
 		cmdSend: cmdSend,
 		cmdRecv: cmdRecv,
 		recv:    make(chan [][]byte, 2),
@@ -79,12 +95,13 @@ func (s *socket) Pump() {
 // pumpChan pumps messages out from channels in to sockets.
 func (s *socket) pumpChan() {
 	defer s.cmdSend.Close()
+	defer s.msgSend.Close()
 	var stopping = false
 	for !stopping {
 		println("I: pumpChan() back in the select again", s)
 		select {
 		case msg := <-s.send:
-			s.main.SendMultipart(msg, 0) // TODO: handle error
+			s.msgSend.SendMultipart(msg, 0) // TODO: handle error
 		case e := <-s.cmd:
 			switch event(e[0][0]) {
 			case closing:
@@ -100,12 +117,17 @@ func (s *socket) pumpChan() {
 
 // pumpSock pumps messages in from sockets and out to channels.
 func (s *socket) pumpSock() {
-	defer s.cmdRecv.Close()
 	defer s.main.Close()
+	defer s.msgRecv.Close()
+	defer s.cmdRecv.Close()
 	items := zmq.PollItems{
 		zmq.PollItem{
 			Socket: s.cmdRecv,
 			Events: zmq.POLLIN,
+		},
+		zmq.PollItem{
+			Socket:s.msgRecv,
+			Events:zmq.POLLIN,
 		},
 	}
 	typ, err := s.main.GetSockOptUInt64(zmq.TYPE)
@@ -142,7 +164,15 @@ func (s *socket) pumpSock() {
 				break
 			}
 		}
-		if len(items) > 1 && (items[1].REvents&zmq.POLLIN) != 0 {
+		if(items[1].REvents&zmq.POLLIN)!=0{
+			println("I: in received a message to send")
+			msg, err := s.msgRecv.RecvMultipart(0)
+			if err != nil {
+				panic(err.Error())
+			}
+			s.main.SendMultipart(msg, 0)
+		}
+		if len(items) > 2 && (items[2].REvents&zmq.POLLIN) != 0 {
 			println("I: in received a message")
 			msg, err := s.main.RecvMultipart(0)
 			if err != nil {
