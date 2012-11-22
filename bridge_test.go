@@ -7,44 +7,62 @@ import (
 	zmq "github.com/alecthomas/gozmq"
 )
 
-func TestBridge_RegisterIn(t *testing.T) {
-	unit, err := NewBridge(nil)
-	if err != nil {
+func TestContext_PushPull(t *testing.T) {
+	var (
+		unit Context
+		pull In
+		push Out
+		err  error
+	)
+	if unit, err = NewContext(); err != nil {
 		t.Fatalf(err.Error())
 	}
-	pull, err := unit.Context().NewSocket(zmq.PULL)
-	if err != nil {
+	if pull, err = unit.NewIn(zmq.PULL); err != nil {
 		t.Fatalf(err.Error())
 	}
-	push, err := unit.Context().NewSocket(zmq.PUSH)
-	if err != nil {
+	if err = pull.Bind("inproc://test"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	pulling, err := unit.RegisterIn(pull)
-	if err != nil {
+	if push, err = unit.NewOut(zmq.PUSH); err != nil {
 		t.Fatalf(err.Error())
 	}
-	push.Send([]byte("test"), 0)
+	if err = push.Connect("inproc://test"); err != nil {
+		t.Fatalf(err.Error())
+	}
+	go func() {
+		println("I: pumping context")
+		if err := unit.Pump(); err != nil {
+			t.Errorf(err.Error())
+		}
+		println("!!!")
+	}()
+	time.Sleep(100 * time.Millisecond)
+	println("I: pushing out...")
+	push.Out() <- [][]byte{[]byte("test")}
+	println("I: pushed out")
 	select {
-	case <-pulling:
+	case <-pull.In():
 		t.Logf("received message.")
 	case <-time.After(10 * time.Millisecond):
 		t.Errorf("failed to receive message within timeout.")
 	}
+	if err = unit.Close(); err != nil {
+		t.Fatalf(err.Error())
+	}
 }
 
-func TestBridge_RegisterOut(t *testing.T) {
+func TestContext_NewOut(t *testing.T) {
 	t.Errorf("TODO: test this.")
 }
 
-func TestBridge_RegisterInOut(t *testing.T) {
+func TestContext_NewInOut(t *testing.T) {
 	t.Errorf("TODO: test this.")
 }
 
-func TestBridge_Start(t *testing.T) {
+func TestContext_Pump(t *testing.T) {
 	t.Errorf("TODO: test this.")
 }
 
-func TestBridge_Stop(t *testing.T) {
+func TestContext_Close(t *testing.T) {
 	t.Errorf("TODO: test this.")
 }
