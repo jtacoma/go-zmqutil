@@ -147,7 +147,8 @@ func (s *socket) pumpSock() {
 			println("I: closing pumpSock() [context terminated]")
 			break
 		} else if err != nil {
-			panic(err.Error())
+			println("E: unknown error, breaking socket reading loop:",err)
+			break
 		}
 		if (items[0].REvents & zmq.POLLIN) != 0 {
 			println("I: in received an event")
