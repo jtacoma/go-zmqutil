@@ -32,19 +32,21 @@ func TestSocket(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 	polling, err = NewPolling(context)
-	println("I: pushing out...")
 	push.Send([]byte("test"), 0)
-	println("I: pushed out")
 	cpull, err = polling.Include(pull)
 	select {
 	case <-cpull:
-		t.Logf("received message.")
 	case <-time.After(10 * time.Millisecond):
 		t.Errorf("failed to receive message within timeout.")
 	}
-	polling.Close()
-	push.Close()
-	pull.Close()
-	println("I: closing context.")
+	if err = polling.Close(); err != nil {
+		t.Fatalf(err.Error())
+	}
+	if err = push.Close(); err != nil {
+		t.Fatalf(err.Error())
+	}
+	if err = pull.Close(); err != nil {
+		t.Fatalf(err.Error())
+	}
 	context.Close()
 }

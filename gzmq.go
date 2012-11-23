@@ -1,4 +1,24 @@
+// The gzmq package provides abstractions that make ZeroMQ more
+// accessible to idiomatic Go.
+//
+// ZeroMQ's sockets and Go's channels are similar in purpose, but have
+// some significant differences.  ZeroMQ's sockets can communicate
+// across process and machine boundaries, while Go's channels cannot.
+// Go's channels are thread-safe, while ZeroMQ's sockets are not.
+//
+// ZeroMQ's Poll() method and Go's "select" statement are attempts to
+// solve the same problem: efficient reads from multiple sources of
+// information.  However, ZeroMQ's Poll() method cannot be used to poll
+// a combination of sockets and channels, while Go's "select" statement
+// requires explicit code blocks for each information source.
+// 
+// The Polling defined in this package is an attempt to makee ZeroMQ sockets
+// available, through a Poll() loop, as channels for use in Go "select"
+// statements.
 package gzmq
+
+// TODO: make polling.fault available to callers outside this package.
+// TODO: support sending messages on polled sockets (use commands).
 
 import (
 	"strconv"
@@ -7,6 +27,7 @@ import (
 	zmq "github.com/alecthomas/gozmq"
 )
 
+// A Polling is a ZeroMQ poll loop running in a goroutine.
 type Polling interface {
 	Include(zmq.Socket) (<-chan [][]byte, error)
 	Close() error
@@ -16,15 +37,17 @@ type polling struct {
 	notifySend zmq.Socket  // to notify goroutine of pending commands
 	commands   chan func() // pending commands
 	items      []pollingItem
-	closing    bool
-	closed     sync.WaitGroup
+	fault      error          // error, if any, that caused polling to stop
+	closing    bool           // true if polling is either stopping or stopped
+	running    sync.WaitGroup // becomes zero when polling is finished
 }
 
 type pollingItem struct {
 	socket  zmq.Socket
-	channel chan [][]byte
+	channel chan [][]byte // messages that have been received
 }
 
+// NewPolling starts a ZeroMQ poll loop in a goroutine.
 func NewPolling(context zmq.Context) (Polling, error) {
 	notifySend, notifyRecv, err := newPair(context)
 	if err != nil {
@@ -37,57 +60,28 @@ func NewPolling(context zmq.Context) (Polling, error) {
 			pollingItem{notifyRecv, nil},
 		},
 	}
-	p.closed.Add(1)
-	go func() {
-		for !p.closing {
-			pollItems := make(zmq.PollItems, len(p.items))
-			for i, item := range p.items {
-				pollItems[i].Socket = item.socket
-				pollItems[i].Events = zmq.POLLIN
-			}
-			_, err := zmq.Poll(pollItems, -1)
-			if err != nil {
-				println("E:", err.Error())
-				break
-			}
-			if (pollItems[0].REvents & zmq.POLLIN) != 0 {
-				_, err := notifyRecv.RecvMultipart(0)
-				if err != nil {
-					println("E:", err.Error())
-					break
-				}
-				cmd := <-p.commands
-				cmd()
-			}
-			for i := 1; i < len(pollItems); i++ {
-				item := pollItems[i]
-				if (item.REvents & zmq.POLLIN) != 0 {
-					msg, err := item.Socket.RecvMultipart(0)
-					if err != nil {
-						println("E:", err.Error())
-						continue //?
-					}
-					pitem := p.items[i]
-					println("I: receiving message into channel.")
-					pitem.channel <- msg
-					println("I: received message into channel.")
-				}
-			}
-		}
-		notifyRecv.Close()
-		p.closed.Done()
-	}()
+	p.running.Add(1)
+	go p.loop(notifyRecv)
 	return &p, nil
 }
 
+// Close causes the poll loop to exit, and blocks until it is done.
+//
+// Message channels will be closed, but polled sockets will be left
+// open.
 func (p *polling) Close() error {
 	p.notifySend.Send([]byte{0}, 0)
 	p.notifySend.Close()
 	p.commands <- func() { p.closing = true }
-	p.closed.Wait()
+	p.running.Wait()
 	return nil
 }
 
+// Include adds a ZeroMQ socket to a poll loop, so that it will be
+// polled for incoming messages.
+//
+// The returned channel must be used to receive messages from this
+// socket until the polling is closed.
 func (p *polling) Include(s zmq.Socket) (result <-chan [][]byte, err error) {
 	done := make(chan int)
 	p.notifySend.Send([]byte{0}, 0)
@@ -100,7 +94,6 @@ func (p *polling) Include(s zmq.Socket) (result <-chan [][]byte, err error) {
 		}
 		if !ok {
 			ch := make(chan [][]byte, 4)
-			println("I: including socket", s)
 			p.items = append(p.items, pollingItem{s, ch})
 			result = ch
 		}
@@ -108,6 +101,79 @@ func (p *polling) Include(s zmq.Socket) (result <-chan [][]byte, err error) {
 	}
 	<-done
 	return
+}
+
+func (p *polling) loop(notifyRecv zmq.Socket) {
+
+	defer func() {
+		// Close all "received message" channels :
+		for _, pi := range p.items {
+			if pi.channel != nil {
+				close(pi.channel)
+			}
+		}
+
+		// For sockets that may have queued out-going messages, this call
+		// may block until they are sent:
+		notifyRecv.Close()
+
+		// Indicate to any waiting code that this poll loop is all done:
+		p.running.Done()
+	}()
+
+	for !p.closing {
+
+		// TODO: refactor so that pollItems is re-constructed only when
+		// necessary.
+		pollItems := make(zmq.PollItems, len(p.items))
+		for i, item := range p.items {
+			pollItems[i].Socket = item.socket
+			pollItems[i].Events = zmq.POLLIN
+		}
+
+		// Poll with an infinite timeout: this loop never spins idle.
+		_, err := zmq.Poll(pollItems, -1)
+
+		// Possible errors returned from Poll() are: ETERM, meaning a
+		// context was closed; EFAULT, meaning a mistake was made in
+		// setting up the PollItems list; and EINTR, meaning a signal
+		// was delivered before any events were available.  Here, we
+		// treat all errors the same:
+		if err != nil {
+			p.fault = err
+			p.closing = true
+			break
+		}
+
+		// Check for incoming commands first.  For each message
+		// available in notifyRecv, dequeue one command and execute it:
+		if (pollItems[0].REvents & zmq.POLLIN) != 0 {
+			_, err := notifyRecv.RecvMultipart(0)
+			if err != nil {
+				p.fault = err
+				p.closing = true
+				break
+			}
+			cmd := <-p.commands
+			cmd()
+		}
+
+		// Check all other sockets, sending any available messages to
+		// their associated channels:
+		for i := 1; i < len(pollItems); i++ {
+			item := pollItems[i]
+			if (item.REvents & zmq.POLLIN) != 0 {
+				msg, err := item.Socket.RecvMultipart(0)
+				if err != nil {
+					p.fault = err
+					p.closing = true
+					continue //?
+				}
+				pitem := p.items[i]
+				pitem.channel <- msg
+			}
+		}
+	}
 }
 
 func newPair(c zmq.Context) (send zmq.Socket, recv zmq.Socket, err error) {
