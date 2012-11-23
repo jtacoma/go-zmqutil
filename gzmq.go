@@ -12,7 +12,7 @@
 // a combination of sockets and channels, while Go's "select" statement
 // requires explicit code blocks for each information source.
 // 
-// The Polling defined in this package is an attempt to makee ZeroMQ sockets
+// The Polling defined in this package is an attempt to make ZeroMQ sockets
 // available, through a Poll() loop, as channels for use in Go "select"
 // statements.
 package gzmq
