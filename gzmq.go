@@ -126,8 +126,8 @@ func (s *socket) pumpSock() {
 			Events: zmq.POLLIN,
 		},
 		zmq.PollItem{
-			Socket:s.msgRecv,
-			Events:zmq.POLLIN,
+			Socket: s.msgRecv,
+			Events: zmq.POLLIN,
 		},
 	}
 	typ, err := s.main.GetSockOptUInt64(zmq.TYPE)
@@ -147,7 +147,7 @@ func (s *socket) pumpSock() {
 			println("I: closing pumpSock() [context terminated]")
 			break
 		} else if err != nil {
-			println("E: unknown error, breaking socket reading loop:",err)
+			println("E: unknown error, breaking socket reading loop:", err)
 			break
 		}
 		if (items[0].REvents & zmq.POLLIN) != 0 {
@@ -165,7 +165,7 @@ func (s *socket) pumpSock() {
 				break
 			}
 		}
-		if(items[1].REvents&zmq.POLLIN)!=0{
+		if (items[1].REvents & zmq.POLLIN) != 0 {
 			println("I: in received a message to send")
 			msg, err := s.msgRecv.RecvMultipart(0)
 			if err != nil {
