@@ -18,7 +18,6 @@
 package gzmq
 
 // TODO: make polling.fault available to callers outside this package.
-// TODO: support sending messages on polled sockets (use commands).
 
 import (
 	"strconv"
@@ -30,6 +29,7 @@ import (
 // A Polling is a ZeroMQ poll loop running in a goroutine.
 type Polling interface {
 	Include(zmq.Socket) (<-chan [][]byte, error)
+	Sync(func())
 	Close() error
 }
 
@@ -70,9 +70,8 @@ func NewPolling(context zmq.Context) (Polling, error) {
 // Message channels will be closed, but polled sockets will be left
 // open.
 func (p *polling) Close() error {
-	p.notifySend.Send([]byte{0}, 0)
+	p.Sync(func() { p.closing = true })
 	p.notifySend.Close()
-	p.commands <- func() { p.closing = true }
 	p.running.Wait()
 	return nil
 }
@@ -84,8 +83,7 @@ func (p *polling) Close() error {
 // socket until the polling is closed.
 func (p *polling) Include(s zmq.Socket) (result <-chan [][]byte, err error) {
 	done := make(chan int)
-	p.notifySend.Send([]byte{0}, 0)
-	p.commands <- func() {
+	p.Sync(func() {
 		var ok bool
 		for _, existing := range p.items {
 			if existing.socket == s {
@@ -98,9 +96,17 @@ func (p *polling) Include(s zmq.Socket) (result <-chan [][]byte, err error) {
 			result = ch
 		}
 		done <- 1
-	}
+	})
 	<-done
 	return
+}
+
+// Sync executes a function outside of the poll.
+//
+// Useful for performing operations on the sockets being polled.
+func (p *polling) Sync(f func()) {
+	p.notifySend.Send([]byte{0}, 0)
+	p.commands <- f
 }
 
 func (p *polling) loop(notifyRecv zmq.Socket) {
