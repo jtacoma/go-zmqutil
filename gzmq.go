@@ -34,16 +34,16 @@ type Polling interface {
 }
 
 type polling struct {
-	notifySend zmq.Socket  // to notify goroutine of pending commands
-	commands   chan func() // pending commands
-	items      []pollingItem
+	notifySend zmq.Socket     // to notify goroutine of pending commands
+	commands   chan func()    // pending commands
+	items      []pollingItem  // sockets with their channels
 	fault      error          // error, if any, that caused polling to stop
 	closing    bool           // true if polling is either stopping or stopped
 	running    sync.WaitGroup // becomes zero when polling is finished
 }
 
 type pollingItem struct {
-	socket  zmq.Socket
+	socket  zmq.Socket    // socket that is/will be polled
 	channel chan [][]byte // messages that have been received
 }
 
@@ -78,6 +78,10 @@ func (p *polling) Close() error {
 
 // Include adds a ZeroMQ socket to a poll loop, so that it will be
 // polled for incoming messages.
+//
+// Notice that while this polling is running you must not use the socket
+// in any other way except within the scope of a func passed to the Lock
+// method.
 //
 // The returned channel must be used to receive messages from this
 // socket until the polling is closed.
