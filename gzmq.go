@@ -80,7 +80,7 @@ func (p *polling) Close() error {
 // polled for incoming messages.
 //
 // Notice that while this polling is running you must not use the socket
-// in any other way except within the scope of a func passed to the Lock
+// in any other way except within the scope of a func passed to the Sync
 // method.
 //
 // The returned channel must be used to receive messages from this
