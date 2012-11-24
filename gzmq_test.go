@@ -1,11 +1,50 @@
 package gzmq
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	zmq "github.com/alecthomas/gozmq"
 )
+
+func ExamplePolling() {
+	context, _ := zmq.NewContext()
+	defer context.Close()
+
+	polling, _ := NewPolling(context)
+	defer polling.Close()
+
+	cli, _ := context.NewSocket(zmq.REQ)
+	defer cli.Close()
+	srv, _ := context.NewSocket(zmq.ROUTER)
+	defer srv.Close()
+	srv.Bind("inproc://example")
+	cli.Connect("inproc://example")
+
+	cli_send, _ := polling.NewSending(cli)
+	srv_recv, _ := polling.Start(srv)
+	srv_send, _ := polling.NewSending(srv)
+	cli_recv, _ := polling.Start(cli)
+
+	go func() {
+		// Process requests:
+		for msg := range srv_recv {
+			srv_send <- msg
+		}
+	}()
+
+	// Send request:
+	cli_send <- [][]byte{[]byte("Echo!")}
+
+	// Receive response:
+	msg := <-cli_recv
+
+	fmt.Println(string(msg[0]))
+
+	// Output:
+	// Echo!
+}
 
 func TestNewSending(t *testing.T) {
 	var (
