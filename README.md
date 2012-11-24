@@ -14,14 +14,14 @@ Purpose
 
 *A Go application that uses ØMQ sockets should be a joy to develop.*  Unfortunately, ØMQ doesn't quite fit in with the way things are done in Go.
 
-ØMQ sockets are not thread-safe.  This is perfectly acceptable when ØMQ enables message passing between threads for languages that don't already provide such an abstraction, but Go does.  Go's channels are thread-safe.  They're also syntactically sweet and easy to use.
+ØMQ sockets are not thread-safe.  This is perfectly acceptable when ØMQ enables message passing between threads for languages that don't already provide such an abstraction, but Go does: channels are thread-safe, syntactically sweet, and easy to use.
 
 This package implements channel-based sending and receiving for ØMQ sockets.
 
 Problems
 --------
 
-Buffered channels hold message outside the scope of ØMQ's own buffers.  This means that if you queue some outgoing messages in a channel, then close the socket before they've all been sent, ØMQ will (by default) not close the socket until all the messages it knows about have been sent.  In this case, messages waiting in the channel will not be sent.  The current version of gzmq does not address this issue.
+Buffered channels hold messages outside the scope of ØMQ's own buffers.  This means that if you queue some outgoing messages in a channel, then close the socket before they've all been sent, ØMQ will (by default) not close the socket until all the messages it knows about have been sent.  In this case, messages waiting in the channel will not be sent.  The current version of gzmq does not address this issue.
 
 Channels do not provide all the options available when sending/receiving through ØMQ's API.  For example, using ØMQ directly you can do a non-blocking send that fails if the message can't immediately be sent.  This can still be accomplished from code that has access to the Polling (through its Sync method) but doing so lessens the benefit of using gzmq.
 

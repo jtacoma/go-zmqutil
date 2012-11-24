@@ -1,24 +1,7 @@
 // Copyright (c) 2012 Joshua Tacoma (http://opensource.org/licenses/MIT)
 
-// The gzmq package provides abstractions that make ZeroMQ more
-// accessible to idiomatic Go.
-//
-// ZeroMQ's sockets and Go's channels are similar in purpose, but have
-// some significant differences.  ZeroMQ's sockets can communicate
-// across process and machine boundaries, while Go's channels cannot.
-// Go's channels are thread-safe, while ZeroMQ's sockets are not.
-//
-// ZeroMQ's Poll() method and Go's "select" statement are attempts to
-// solve the same problem: efficient reads from multiple sources of
-// information.  However, ZeroMQ's Poll() method cannot be used to poll
-// a combination of sockets and channels, while Go's "select" statement
-// requires explicit code blocks for each information source.
-// 
-// The Polling defined in this package is an attempt to make ZeroMQ
-// sockets available, through a Poll() loop, as channels for use in Go
-// "select" statements.  Additional function NewSending and method
-// Polling.NewSending serve to receive messages from Go channels into
-// sockets.
+// The gzmq package lets messages be received from and sent to ZeroMQ
+// sockets through channels.
 package gzmq
 
 // TODO: make polling.fault available to callers outside this package.
