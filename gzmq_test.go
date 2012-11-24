@@ -1,3 +1,5 @@
+// Copyright (c) 2012 Joshua Tacoma (http://opensource.org/licenses/MIT)
+
 package gzmq
 
 import (
