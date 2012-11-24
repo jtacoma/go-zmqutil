@@ -20,6 +20,7 @@ package gzmq
 // TODO: make polling.fault available to callers outside this package.
 
 import (
+	"errors"
 	"strconv"
 	"sync"
 
@@ -28,7 +29,8 @@ import (
 
 // A Polling is a ZeroMQ poll loop running in a goroutine.
 type Polling interface {
-	Include(zmq.Socket) (<-chan [][]byte, error)
+	Start(zmq.Socket) (<-chan [][]byte, error)
+	Stop(zmq.Socket) error
 	Sync(func())
 	Close() error
 }
@@ -76,16 +78,13 @@ func (p *polling) Close() error {
 	return nil
 }
 
-// Include adds a ZeroMQ socket to a poll loop, so that it will be
+// Start adds a ZeroMQ socket to a poll loop, so that it will be
 // polled for incoming messages.
 //
 // Notice that while this polling is running you must not use the socket
 // in any other way except within the scope of a func passed to the Sync
 // method.
-//
-// The returned channel must be used to receive messages from this
-// socket until the polling is closed.
-func (p *polling) Include(s zmq.Socket) (result <-chan [][]byte, err error) {
+func (p *polling) Start(s zmq.Socket) (result <-chan [][]byte, err error) {
 	done := make(chan int)
 	p.Sync(func() {
 		var ok bool
@@ -103,6 +102,30 @@ func (p *polling) Include(s zmq.Socket) (result <-chan [][]byte, err error) {
 	})
 	<-done
 	return
+}
+
+// Stop removes a ZeroMQ socket from a poll loop, so that it will no
+// longer be polled for incoming messages.
+func (p *polling) Stop(s zmq.Socket) (err error) {
+	done := make(chan int)
+	p.Sync(func() {
+		index := -1
+		for i, existing := range p.items {
+			if existing.socket == s {
+				index = i
+			}
+		}
+		if index < 0 {
+			err = errors.New("socket is already not being polled.")
+		} else if index == len(p.items)-1 {
+			p.items = p.items[0:index]
+		} else {
+			p.items = append(p.items[0:index], p.items[index+1:len(p.items)]...)
+		}
+		done <- 1
+	})
+	<-done
+	return err
 }
 
 // Sync executes a function outside of the poll.
@@ -155,19 +178,6 @@ func (p *polling) loop(notifyRecv zmq.Socket) {
 			break
 		}
 
-		// Check for incoming commands first.  For each message
-		// available in notifyRecv, dequeue one command and execute it:
-		if (pollItems[0].REvents & zmq.POLLIN) != 0 {
-			_, err := notifyRecv.RecvMultipart(0)
-			if err != nil {
-				p.fault = err
-				p.closing = true
-				break
-			}
-			cmd := <-p.commands
-			cmd()
-		}
-
 		// Check all other sockets, sending any available messages to
 		// their associated channels:
 		for i := 1; i < len(pollItems); i++ {
@@ -182,6 +192,23 @@ func (p *polling) loop(notifyRecv zmq.Socket) {
 				pitem := p.items[i]
 				pitem.channel <- msg
 			}
+		}
+
+		// Check for incoming commands.  For each message available in
+		// notifyRecv, dequeue one command and execute it.
+		//
+		// Commands may modify p.items, which earlier code in this
+		// method assumes aligns with local slice pollItems.  Therfore,
+		// commands must be processed afterward.
+		if (pollItems[0].REvents & zmq.POLLIN) != 0 {
+			_, err := notifyRecv.RecvMultipart(0)
+			if err != nil {
+				p.fault = err
+				p.closing = true
+				break
+			}
+			cmd := <-p.commands
+			cmd()
 		}
 	}
 }

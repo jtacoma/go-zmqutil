@@ -37,7 +37,7 @@ func TestPolling(t *testing.T) {
 	polling, err = NewPolling(context)
 	defer polling.Close()
 	push.Send([]byte("test"), 0)
-	cpull, err = polling.Include(pull)
+	cpull, err = polling.Start(pull)
 	select {
 	case <-cpull:
 	case <-time.After(10 * time.Millisecond):
@@ -73,10 +73,10 @@ func TestPolling_Sync(t *testing.T) {
 	}
 	polling, err = NewPolling(context)
 	defer polling.Close()
-	if creP, err = polling.Include(reP); err != nil {
+	if creP, err = polling.Start(reP); err != nil {
 		t.Fatalf(err.Error())
 	}
-	if creQ, err = polling.Include(reQ); err != nil {
+	if creQ, err = polling.Start(reQ); err != nil {
 		t.Fatalf(err.Error())
 	}
 	polling.Sync(func() { reQ.Send([]byte("request"), 0) })
@@ -85,6 +85,10 @@ func TestPolling_Sync(t *testing.T) {
 		select {
 		case <-creP:
 			polling.Sync(func() { reP.Send([]byte("response"), 0) })
+			err = polling.Stop(reP)
+			if err != nil {
+				t.Fatalf(err.Error())
+			}
 		case <-creQ:
 			done = true
 		case <-time.After(10 * time.Millisecond):
