@@ -12,9 +12,11 @@
 // a combination of sockets and channels, while Go's "select" statement
 // requires explicit code blocks for each information source.
 // 
-// The Polling defined in this package is an attempt to make ZeroMQ sockets
-// available, through a Poll() loop, as channels for use in Go "select"
-// statements.
+// The Polling defined in this package is an attempt to make ZeroMQ
+// sockets available, through a Poll() loop, as channels for use in Go
+// "select" statements.  Additional function NewSending and method
+// Polling.NewSending serve to receive messages from Go channels into
+// sockets.
 package gzmq
 
 // TODO: make polling.fault available to callers outside this package.
@@ -27,8 +29,36 @@ import (
 	zmq "github.com/alecthomas/gozmq"
 )
 
+// NewSending starts a goroutine that pumps messages from a channel to a
+// socket.
+//
+// If messages will also be received from this socket, do not use this
+// function.  Instead, use the corresponding method on a Polling.
+//
+// The goroutine will continue until the channel is closed or an error
+// is encountered.  Any error other than ETERM will cause a panic.
+func NewSending(s zmq.Socket) (chan<- [][]byte, error) {
+	channel := make(chan [][]byte)
+	go func() {
+	F:
+		for msg := range channel {
+			err := s.SendMultipart(msg, 0)
+			if err != nil {
+				switch err {
+				case zmq.ETERM:
+					break F
+				default:
+					panic(err.Error())
+				}
+			}
+		}
+	}()
+	return channel, nil
+}
+
 // A Polling is a ZeroMQ poll loop running in a goroutine.
 type Polling interface {
+	NewSending(zmq.Socket) (chan<- [][]byte, error)
 	Start(zmq.Socket) (<-chan [][]byte, error)
 	Stop(zmq.Socket) error
 	Sync(func())
@@ -76,6 +106,37 @@ func (p *polling) Close() error {
 	p.notifySend.Close()
 	p.running.Wait()
 	return nil
+}
+
+// NewSending starts a goroutine that pumps messages from a channel to a
+// socket.
+//
+// The goroutine will continue until the channel is closed or an error
+// is encountered.  Any error other than ETERM will cause a panic.
+func (p *polling) NewSending(s zmq.Socket) (chan<- [][]byte, error) {
+	channel := make(chan [][]byte)
+	go func() {
+		done := make(chan bool)
+		for msg := range channel {
+			p.Sync(func() {
+				err := s.SendMultipart(msg, 0)
+				if err != nil {
+					switch err {
+					case zmq.ETERM:
+						done <- true
+					default:
+						panic(err.Error())
+					}
+				} else {
+					done <- false
+				}
+			})
+			if <-done {
+				break
+			}
+		}
+	}()
+	return channel, nil
 }
 
 // Start adds a ZeroMQ socket to a poll loop, so that it will be
