@@ -44,7 +44,7 @@ func NewSending(s zmq.Socket) (chan<- [][]byte, error) {
 // A Polling is a ZeroMQ poll loop running in a goroutine.
 type Polling interface {
 	NewSending(zmq.Socket) (chan<- [][]byte, error)
-	Start(zmq.Socket) (<-chan [][]byte, error)
+	Start(zmq.Socket, int) (<-chan [][]byte, error)
 	Stop(zmq.Socket) error
 	Sync(func())
 	Close() error
@@ -65,14 +65,17 @@ type pollingItem struct {
 }
 
 // NewPolling starts a ZeroMQ poll loop in a goroutine.
-func NewPolling(context zmq.Context) (Polling, error) {
+//
+// The cmdBuf argument specifies the length of the buffered channel that
+// will receive commands to be executed inside the polling loop.
+func NewPolling(context zmq.Context, cmdBuf int) (Polling, error) {
 	notifySend, notifyRecv, err := newPair(context)
 	if err != nil {
 		return nil, err
 	}
 	p := polling{
 		notifySend: notifySend,
-		commands:   make(chan func(), 4),
+		commands:   make(chan func(), cmdBuf),
 		items: []pollingItem{
 			pollingItem{notifyRecv, nil},
 		},
@@ -130,7 +133,10 @@ func (p *polling) NewSending(s zmq.Socket) (chan<- [][]byte, error) {
 // Notice that while this polling is running you must not use the socket
 // in any other way except within the scope of a func passed to the Sync
 // method.
-func (p *polling) Start(s zmq.Socket) (result <-chan [][]byte, err error) {
+//
+// The chanBuf argument specifies the length of the buffered channel
+// that will queue received messages for processing.
+func (p *polling) Start(s zmq.Socket, chanBuf int) (result <-chan [][]byte, err error) {
 	done := make(chan int)
 	p.Sync(func() {
 		var ok bool
@@ -140,7 +146,7 @@ func (p *polling) Start(s zmq.Socket) (result <-chan [][]byte, err error) {
 			}
 		}
 		if !ok {
-			ch := make(chan [][]byte, 4)
+			ch := make(chan [][]byte, chanBuf)
 			p.items = append(p.items, pollingItem{s, ch})
 			result = ch
 		}

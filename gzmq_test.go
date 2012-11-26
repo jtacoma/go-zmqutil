@@ -14,7 +14,7 @@ func ExamplePolling() {
 	context, _ := zmq.NewContext()
 	defer context.Close()
 
-	polling, _ := NewPolling(context)
+	polling, _ := NewPolling(context, 1)
 	defer polling.Close()
 
 	cli, _ := context.NewSocket(zmq.REQ)
@@ -25,9 +25,9 @@ func ExamplePolling() {
 	cli.Connect("inproc://example")
 
 	cli_send, _ := polling.NewSending(cli)
-	srv_recv, _ := polling.Start(srv)
+	srv_recv, _ := polling.Start(srv, 1)
 	srv_send, _ := polling.NewSending(srv)
-	cli_recv, _ := polling.Start(cli)
+	cli_recv, _ := polling.Start(cli, 1)
 
 	go func() {
 		// Process requests:
@@ -78,9 +78,9 @@ func TestNewSending(t *testing.T) {
 	}
 	cpush, _ = NewSending(push)
 	cpush <- [][]byte{[]byte("test")}
-	polling, err = NewPolling(context)
+	polling, err = NewPolling(context, 1)
 	defer polling.Close()
-	cpull, _ = polling.Start(pull)
+	cpull, _ = polling.Start(pull, 1)
 	select {
 	case <-cpull:
 	case <-time.After(10 * time.Millisecond):
@@ -115,10 +115,10 @@ func TestPolling(t *testing.T) {
 	if err = push.Connect("inproc://test"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	polling, err = NewPolling(context)
+	polling, err = NewPolling(context, 1)
 	defer polling.Close()
 	push.Send([]byte("test"), 0)
-	cpull, err = polling.Start(pull)
+	cpull, err = polling.Start(pull, 1)
 	select {
 	case <-cpull:
 	case <-time.After(10 * time.Millisecond):
@@ -152,12 +152,12 @@ func TestPolling_Sync(t *testing.T) {
 	if err = reP.Connect("inproc://test"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	polling, err = NewPolling(context)
+	polling, err = NewPolling(context, 1)
 	defer polling.Close()
-	if creP, err = polling.Start(reP); err != nil {
+	if creP, err = polling.Start(reP, 1); err != nil {
 		t.Fatalf(err.Error())
 	}
-	if creQ, err = polling.Start(reQ); err != nil {
+	if creQ, err = polling.Start(reQ, 1); err != nil {
 		t.Fatalf(err.Error())
 	}
 	polling.Sync(func() { reQ.Send([]byte("request"), 0) })
@@ -206,12 +206,12 @@ func TestPolling_Sending(t *testing.T) {
 	if err = reP.Connect("inproc://test"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	polling, err = NewPolling(context)
+	polling, err = NewPolling(context, 1)
 	defer polling.Close()
-	if crePrecv, err = polling.Start(reP); err != nil {
+	if crePrecv, err = polling.Start(reP, 1); err != nil {
 		t.Fatalf(err.Error())
 	}
-	if creQrecv, err = polling.Start(reQ); err != nil {
+	if creQrecv, err = polling.Start(reQ, 1); err != nil {
 		t.Fatalf(err.Error())
 	}
 	crePsend, _ = polling.NewSending(reP)
