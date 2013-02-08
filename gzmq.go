@@ -39,8 +39,34 @@ func NewContext() (Context, error) {
 }
 
 func (gctx *context) Close() error {
+	if gctx == nil {
+		return ContextIsNil
+	}
+	var (
+		err    error
+		linger = int(gctx.linger / time.Millisecond)
+	)
+	println("setting linger to", linger, "ms")
+	for sock := range gctx.socks {
+		sock_err := sock.SetSockOptInt(zmq.LINGER, linger)
+		if err == nil && sock_err != nil {
+		println("sock_err", sock_err.Error())
+			err = sock_err
+		}
+	}
+	for sock := range gctx.socks {
+		go func() {
+			start := time.Now()
+			sock_err := sock.Close()
+			println("closed in", time.Now().Sub(start),"ns")
+			if err == nil && sock_err != nil {
+		println("sock_err (B)", sock_err.Error())
+				err = sock_err
+			}
+		}()
+	}
 	gctx.base.Close()
-	return nil
+	return err
 }
 
 func (gctx *context) SetLinger(linger time.Duration) error {
@@ -48,6 +74,7 @@ func (gctx *context) SetLinger(linger time.Duration) error {
 		return ContextIsNil
 	}
 	gctx.linger = linger
+	println("set linger to", linger, "ns")
 	return nil
 }
 
@@ -56,9 +83,11 @@ func (gctx *context) NewSocket(t zmq.SocketType) (Socket, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &socket{
+	sock := &socket{
 		zmq.Socket: base,
-	}, nil
+	}
+	gctx.socks[sock] = true
+	return sock, nil
 }
 
 type Error int
@@ -67,6 +96,10 @@ const (
 	_                  = iota
 	ContextIsNil Error = iota
 	SocketIsNil
+)
+
+const (
+	Forever time.Duration = -1 * time.Millisecond
 )
 
 func (e Error) Error() string {

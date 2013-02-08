@@ -9,8 +9,9 @@ import (
 
 func TestContext_SetLinger(t *testing.T) {
 	ctx, _ := NewContext()
-	ctx.SetLinger(50 * time.Millisecond)
-	sock, _ := ctx.NewSocket(zmq.PUSH)
+	//ctx.SetLinger(100 * time.Millisecond)
+	//ctx.SetLinger(Forever)
+	sock, _ := ctx.NewSocket(zmq.REQ)
 	sock.Bind("inproc://test")
 	go sock.Send([]byte("stays-in-queue"), 0)
 	time.Sleep(5 * time.Millisecond) // make sure message reaches queue
@@ -26,7 +27,7 @@ func TestContext_SetLinger(t *testing.T) {
 	}
 	select {
 	case <-done:
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(200 * time.Millisecond):
 		t.Fatalf("taking far too long to close when linger is set to 50ms.")
 	}
 }
