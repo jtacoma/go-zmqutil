@@ -1,21 +1,17 @@
 package gzmq
 
 import (
-	"time"
-
 	zmq "github.com/alecthomas/gozmq"
 )
 
 type Context interface {
 	NewSocket(t zmq.SocketType) (Socket, error)
 	Close() error
-	SetLinger(time.Duration) error
 }
 
 type context struct {
-	base   zmq.Context
-	linger time.Duration
-	socks  map[*socket]bool
+	base  zmq.Context
+	socks map[*socket]bool
 }
 
 type Socket interface {
@@ -39,16 +35,20 @@ func NewContext() (Context, error) {
 }
 
 func (gctx *context) Close() error {
-	gctx.base.Close()
-	return nil
-}
-
-func (gctx *context) SetLinger(linger time.Duration) error {
 	if gctx == nil {
 		return ContextIsNil
 	}
-	gctx.linger = linger
-	return nil
+	var err error
+	for sock := range gctx.socks {
+		go func() {
+			sock_err := sock.Close()
+			if err == nil && sock_err != nil {
+				err = sock_err
+			}
+		}()
+	}
+	gctx.base.Close()
+	return err
 }
 
 func (gctx *context) NewSocket(t zmq.SocketType) (Socket, error) {
@@ -56,9 +56,11 @@ func (gctx *context) NewSocket(t zmq.SocketType) (Socket, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &socket{
+	sock := &socket{
 		zmq.Socket: base,
-	}, nil
+	}
+	gctx.socks[sock] = true
+	return sock, nil
 }
 
 type Error int

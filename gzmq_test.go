@@ -8,25 +8,30 @@ import (
 )
 
 func TestContext_SetLinger(t *testing.T) {
-	ctx, _ := NewContext()
-	ctx.SetLinger(50 * time.Millisecond)
-	sock, _ := ctx.NewSocket(zmq.PUSH)
-	sock.Bind("inproc://test")
-	go sock.Send([]byte("stays-in-queue"), 0)
+	ctx, err := NewContext()
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	sock, err := ctx.NewSocket(zmq.REQ)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	err = sock.Bind("inproc://test")
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
 	time.Sleep(5 * time.Millisecond) // make sure message reaches queue
 	done := make(chan int)
 	go func() {
-		ctx.Close()
+		ctx_err := ctx.Close()
+		if ctx_err != nil {
+			t.Fatalf(ctx_err.Error())
+		}
 		done <- 1
 	}()
 	select {
 	case <-done:
-		t.Fatalf("closed too quickly, should have lingered.")
-	case <-time.After(25 * time.Millisecond):
-	}
-	select {
-	case <-done:
-	case <-time.After(100 * time.Millisecond):
-		t.Fatalf("taking far too long to close when linger is set to 50ms.")
+	case <-time.After(time.Millisecond):
+		t.Fatalf("taking too long to close, sockets were left open?")
 	}
 }
