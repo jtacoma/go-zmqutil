@@ -8,26 +8,27 @@ import (
 )
 
 func TestContext_SetLinger(t *testing.T) {
-	ctx, _ := NewContext()
-	//ctx.SetLinger(100 * time.Millisecond)
-	//ctx.SetLinger(Forever)
-	sock, _ := ctx.NewSocket(zmq.REQ)
-	sock.Bind("inproc://test")
-	go sock.Send([]byte("stays-in-queue"), 0)
-	time.Sleep(5 * time.Millisecond) // make sure message reaches queue
-	done := make(chan int)
-	go func() {
-		ctx.Close()
-		done <- 1
-	}()
-	select {
-	case <-done:
-		t.Fatalf("closed too quickly, should have lingered.")
-	case <-time.After(25 * time.Millisecond):
+	var cases = []time.Duration{
+		1 * time.Millisecond,
+		4 * time.Millisecond,
+		16 * time.Millisecond,
+		64 * time.Millisecond,
 	}
-	select {
-	case <-done:
-	case <-time.After(200 * time.Millisecond):
-		t.Fatalf("taking far too long to close when linger is set to 50ms.")
+	for _, linger := range cases {
+		ctx, _ := NewContext()
+		ctx.SetLinger(linger)
+		sock, _ := ctx.NewSocket(zmq.PUSH)
+		sock.Connect("tcp://127.0.0.1:5555")
+		go sock.Send([]byte("message1"), zmq.DONTWAIT)
+		time.Sleep(time.Millisecond)
+		go sock.Send([]byte("message2"), zmq.DONTWAIT)
+		closing := time.Now()
+		ctx.Close()
+		closed := time.Now().Sub(closing)
+		if closed < linger {
+			t.Fatalf("closed in %s, expected >= %s", closed, linger)
+		} else if linger*2 < closed {
+			t.Fatalf("closed in %s, expected close to %s", closed, linger)
+		}
 	}
 }
