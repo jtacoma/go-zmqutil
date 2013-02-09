@@ -12,82 +12,63 @@ import (
 	zmq "github.com/alecthomas/gozmq"
 )
 
+func closeTestCtx(t *testing.T, ctx Context) {
+	done := make(chan int)
+	go func() {
+		ctx.Close()
+		done <- 1
+	}()
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		if t != nil {
+			t.Fatalf("context is taking too long to close.")
+		} else {
+			println("ERROR: context is taking too long to close.")
+		}
+	}
+}
+
 func ExampleLoop() {
 	context, _ := NewContext()
-	defer context.Close()
+	defer closeTestCtx(nil, context)
 
-	loop, _ := NewLoop(context, 1)
-	defer loop.Close()
+	loop, _ := NewLoop(context)
 
 	cli, _ := context.NewSocket(zmq.REQ)
-	defer cli.Close()
 	srv, _ := context.NewSocket(zmq.ROUTER)
-	defer srv.Close()
-	srv.Bind("inproc://example")
-	cli.Connect("inproc://example")
+	srv.Bind("tcp://127.0.0.1:5557")
+	cli.Connect("tcp://127.0.0.1:5557")
 
-	cli_send, _ := loop.NewSending(cli)
-	srv_recv, _ := loop.Start(srv, 1)
-	srv_send, _ := loop.NewSending(srv)
-	cli_recv, _ := loop.Start(cli, 1)
-
-	go func() {
-		// Process requests:
-		for msg := range srv_recv {
-			srv_send <- msg
+	loop.PollSocket(srv, zmq.POLLIN, func(e *SocketEvent) error {
+		msg, err := srv.RecvMultipart(0)
+		if err != nil {
+			return err
 		}
-	}()
+		return srv.SendMultipart(msg, 0)
+	})
 
-	// Send request:
-	cli_send <- [][]byte{[]byte("Echo!")}
+	recv := make(chan string, 2)
+	loop.PollSocket(cli, zmq.POLLIN, func(e *SocketEvent) error {
+		msg, err := cli.Recv(0)
+		if err != nil {
+			return err
+		}
+		recv <- string(msg)
+		return nil
+	})
+
+	loop.Sync(func() {
+		cli.Send([]byte("Echo!"), 0)
+	})
 
 	// Receive response:
-	msg := <-cli_recv
+	msg := <-recv
 
-	fmt.Println(string(msg[0]))
+	fmt.Println(msg)
 
 	// Output:
 	// Echo!
-}
-
-func TestNewSending(t *testing.T) {
-	var (
-		context Context
-		pull    Socket
-		push    Socket
-		loop    Loop
-		cpush   chan<- [][]byte
-		cpull   <-chan [][]byte
-		err     error
-	)
-	if context, err = NewContext(); err != nil {
-		t.Fatalf(err.Error())
-	}
-	defer context.Close()
-	if pull, err = context.NewSocket(zmq.PULL); err != nil {
-		t.Fatalf(err.Error())
-	}
-	defer pull.Close()
-	if err = pull.Bind("inproc://test"); err != nil {
-		t.Fatalf(err.Error())
-	}
-	if push, err = context.NewSocket(zmq.PUSH); err != nil {
-		t.Fatalf(err.Error())
-	}
-	defer push.Close()
-	if err = push.Connect("inproc://test"); err != nil {
-		t.Fatalf(err.Error())
-	}
-	cpush, _ = NewSending(push)
-	cpush <- [][]byte{[]byte("test")}
-	loop, err = NewLoop(context, 1)
-	defer loop.Close()
-	cpull, _ = loop.Start(pull, 1)
-	select {
-	case <-cpull:
-	case <-time.After(10 * time.Millisecond):
-		t.Errorf("failed to receive message within timeout.")
-	}
 }
 
 func TestLoop(t *testing.T) {
@@ -95,32 +76,46 @@ func TestLoop(t *testing.T) {
 		context Context
 		pull    Socket
 		push    Socket
-		loop    Loop
-		cpull   <-chan [][]byte
+		loop    *Loop
+		cpull   chan [][]byte
 		err     error
 	)
 	if context, err = NewContext(); err != nil {
 		t.Fatalf(err.Error())
 	}
-	defer context.Close()
+	defer closeTestCtx(t, context)
+	//context.SetVerbose(true)
+	context.SetLinger(100 * time.Millisecond)
 	if pull, err = context.NewSocket(zmq.PULL); err != nil {
 		t.Fatalf(err.Error())
 	}
-	defer pull.Close()
-	if err = pull.Bind("inproc://test"); err != nil {
+	if err = pull.Bind("tcp://127.0.0.1:5555"); err != nil {
 		t.Fatalf(err.Error())
 	}
 	if push, err = context.NewSocket(zmq.PUSH); err != nil {
 		t.Fatalf(err.Error())
 	}
-	defer push.Close()
-	if err = push.Connect("inproc://test"); err != nil {
+	if err = push.Connect("tcp://127.0.0.1:5555"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	loop, err = NewLoop(context, 1)
-	defer loop.Close()
+	loop, err = NewLoop(context)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	//loop.SetVerbose(true)
 	push.Send([]byte("test"), 0)
-	cpull, err = loop.Start(pull, 1)
+	cpull = make(chan [][]byte)
+	_, err = loop.PollSocket(pull, zmq.POLLIN, func(e *SocketEvent) error {
+		msg, err := pull.RecvMultipart(0)
+		if err != nil {
+			return err
+		}
+		cpull <- msg
+		return nil
+	})
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
 	select {
 	case <-cpull:
 	case <-time.After(10 * time.Millisecond):
@@ -132,103 +127,61 @@ func TestLoop_Sync(t *testing.T) {
 	var (
 		context    Context
 		reQ, reP   Socket
-		loop       Loop
-		creQ, creP <-chan [][]byte
+		loop       *Loop
+		creQ, creP chan [][]byte
 		err        error
 	)
 	if context, err = NewContext(); err != nil {
 		t.Fatalf(err.Error())
 	}
 	defer context.Close()
+	//context.SetVerbose(true)
 	if reQ, err = context.NewSocket(zmq.REQ); err != nil {
 		t.Fatalf(err.Error())
 	}
-	defer reQ.Close()
 	if err = reQ.Bind("inproc://test"); err != nil {
 		t.Fatalf(err.Error())
 	}
 	if reP, err = context.NewSocket(zmq.REP); err != nil {
 		t.Fatalf(err.Error())
 	}
-	defer reP.Close()
 	if err = reP.Connect("inproc://test"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	loop, err = NewLoop(context, 1)
-	defer loop.Close()
-	if creP, err = loop.Start(reP, 1); err != nil {
+	loop, err = NewLoop(context)
+	//loop.SetVerbose(true)
+	creP = make(chan [][]byte, 2)
+	repHandler, err := loop.PollSocket(reP, zmq.POLLIN, func(e *SocketEvent) error {
+		if msg, err := e.Socket.RecvMultipart(0); err != nil {
+			return err
+		} else {
+			creP <- msg
+		}
+		return nil
+	})
+	if err != nil {
 		t.Fatalf(err.Error())
 	}
-	if creQ, err = loop.Start(reQ, 1); err != nil {
-		t.Fatalf(err.Error())
-	}
+	creQ = make(chan [][]byte, 2)
+	loop.PollSocket(reQ, zmq.POLLIN, func(e *SocketEvent) error {
+		if msg, err := e.Socket.RecvMultipart(0); err != nil {
+			return err
+		} else {
+			creQ <- msg
+		}
+		return nil
+	})
 	loop.Sync(func() { reQ.Send([]byte("request"), 0) })
 	done := false
 	for !done {
 		select {
 		case <-creP:
 			loop.Sync(func() { reP.Send([]byte("response"), 0) })
-			err = loop.Stop(reP)
+			err = loop.PollSocketEnd(reP, zmq.POLLIN, repHandler)
 			if err != nil {
 				t.Fatalf(err.Error())
 			}
 		case <-creQ:
-			done = true
-		case <-time.After(10 * time.Millisecond):
-			t.Errorf("failed to receive message within timeout.")
-			done = true
-		}
-	}
-}
-
-func TestLoop_Sending(t *testing.T) {
-	var (
-		context            Context
-		reQ, reP           Socket
-		loop               Loop
-		creQrecv, crePrecv <-chan [][]byte
-		creQsend, crePsend chan<- [][]byte
-		err                error
-	)
-	if context, err = NewContext(); err != nil {
-		t.Fatalf(err.Error())
-	}
-	defer context.Close()
-	if reQ, err = context.NewSocket(zmq.REQ); err != nil {
-		t.Fatalf(err.Error())
-	}
-	defer reQ.Close()
-	if err = reQ.Bind("inproc://test"); err != nil {
-		t.Fatalf(err.Error())
-	}
-	if reP, err = context.NewSocket(zmq.REP); err != nil {
-		t.Fatalf(err.Error())
-	}
-	defer reP.Close()
-	if err = reP.Connect("inproc://test"); err != nil {
-		t.Fatalf(err.Error())
-	}
-	loop, err = NewLoop(context, 1)
-	defer loop.Close()
-	if crePrecv, err = loop.Start(reP, 1); err != nil {
-		t.Fatalf(err.Error())
-	}
-	if creQrecv, err = loop.Start(reQ, 1); err != nil {
-		t.Fatalf(err.Error())
-	}
-	crePsend, _ = loop.NewSending(reP)
-	creQsend, _ = loop.NewSending(reQ)
-	creQsend <- [][]byte{[]byte("request")}
-	done := false
-	for !done {
-		select {
-		case <-crePrecv:
-			crePsend <- [][]byte{[]byte("response")}
-			err = loop.Stop(reP)
-			if err != nil {
-				t.Fatalf(err.Error())
-			}
-		case <-creQrecv:
 			done = true
 		case <-time.After(10 * time.Millisecond):
 			t.Errorf("failed to receive message within timeout.")

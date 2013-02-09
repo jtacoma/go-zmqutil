@@ -7,6 +7,7 @@ package gzmq
 import (
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	zmq "github.com/alecthomas/gozmq"
@@ -26,12 +27,11 @@ type context struct {
 	logger *log.Logger
 }
 
-type Socket interface {
-	zmq.Socket
-}
+type Socket zmq.Socket
 
 type socket struct {
 	zmq.Socket
+	ctx *context
 }
 
 // NewContext returns a new context or nil.
@@ -54,28 +54,37 @@ func (gctx *context) Close() error {
 		err    error
 		linger = int(gctx.linger / time.Millisecond)
 	)
-	gctx.logf("closing context: setting linger on sockets...")
+	gctx.logf("closing context: adjusting linger on sockets...")
 	for sock := range gctx.socks {
+		current, _ := sock.GetSockOptInt(zmq.LINGER)
+		if current >= 0 && current < linger {
+			continue
+		}
 		if sock_err := sock.SetSockOptInt(zmq.LINGER, linger); sock_err != nil {
-			gctx.logf("closing context: error while setting linger on socket: %s", sock_err.Error())
+			gctx.logf("closing context: error while setting linger on socket %p: %s", sock, sock_err.Error())
 			if err == nil {
 				err = sock_err
 			}
 		}
 	}
+	var wg sync.WaitGroup
 	for sock := range gctx.socks {
-		go func() {
-			if sock_err := sock.Close(); sock_err != nil && sock_err != zmq.ENOTSOCK {
-				gctx.logf("closing context: error while closing socket: %s", sock_err.Error())
+		wg.Add(1)
+		go func(s *socket) {
+			if sock_err := s.Close(); sock_err != nil && sock_err != zmq.ENOTSOCK {
+				gctx.logf("closing context: error while closing socket %p: %s", s, sock_err.Error())
 				if err == nil {
 					err = sock_err
 				}
 			} else {
-				gctx.logf("closing context: closed socket.")
+				gctx.logf("closing context: closed socket %p.", s)
 			}
-		}()
+			wg.Done()
+		}(sock)
 	}
-	gctx.logf("closing context: closing context...")
+	gctx.logf("closing context: waiting for sockets to close...")
+	wg.Wait()
+	gctx.logf("closing context: sockets closed, closing context...")
 	gctx.base.Close()
 	gctx.logf("closing context: closed context.")
 	return err
@@ -96,7 +105,7 @@ func (gctx *context) SetVerbose(verbose bool) error {
 	if verbose == (gctx.logger != nil) {
 		return nil
 	}
-	gctx.logf("verbose = %t", gctx.logger != nil)
+	gctx.logf("verbose = %t", verbose)
 	if verbose && gctx.logger == nil {
 		gctx.logger = log.New(os.Stdout, "", log.Lmicroseconds)
 	} else if !verbose {
@@ -114,18 +123,16 @@ func (gctx *context) NewSocket(t zmq.SocketType) (Socket, error) {
 	}
 	sock := &socket{
 		zmq.Socket: base,
+		ctx:        gctx,
 	}
 	gctx.socks[sock] = true
-	gctx.logf("created socket.")
+	gctx.logf("created socket %p.", sock)
 	return sock, nil
 }
 
 func (gctx *context) logf(s string, args ...interface{}) {
 	if gctx.logger != nil {
-		if s[len(s)-1] != '\n' {
-			s += "\n"
-		}
-		gctx.logger.Printf("gzmq: "+s, args...)
+		gctx.logger.Printf("[gzmq] "+s, args...)
 	}
 }
 
