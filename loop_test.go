@@ -1,4 +1,6 @@
-// Copyright (c) 2012 Joshua Tacoma (http://opensource.org/licenses/MIT)
+// Copyright 2012-2013 Joshua Tacoma. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
 
 package gzmq
 
@@ -10,12 +12,12 @@ import (
 	zmq "github.com/alecthomas/gozmq"
 )
 
-func ExamplePolling() {
-	context, _ := zmq.NewContext()
+func ExampleLoop() {
+	context, _ := NewContext()
 	defer context.Close()
 
-	polling, _ := NewPolling(context, 1)
-	defer polling.Close()
+	loop, _ := NewLoop(context, 1)
+	defer loop.Close()
 
 	cli, _ := context.NewSocket(zmq.REQ)
 	defer cli.Close()
@@ -24,10 +26,10 @@ func ExamplePolling() {
 	srv.Bind("inproc://example")
 	cli.Connect("inproc://example")
 
-	cli_send, _ := polling.NewSending(cli)
-	srv_recv, _ := polling.Start(srv, 1)
-	srv_send, _ := polling.NewSending(srv)
-	cli_recv, _ := polling.Start(cli, 1)
+	cli_send, _ := loop.NewSending(cli)
+	srv_recv, _ := loop.Start(srv, 1)
+	srv_send, _ := loop.NewSending(srv)
+	cli_recv, _ := loop.Start(cli, 1)
 
 	go func() {
 		// Process requests:
@@ -50,15 +52,15 @@ func ExamplePolling() {
 
 func TestNewSending(t *testing.T) {
 	var (
-		context zmq.Context
-		pull    zmq.Socket
-		push    zmq.Socket
-		polling Polling
+		context Context
+		pull    Socket
+		push    Socket
+		loop    Loop
 		cpush   chan<- [][]byte
 		cpull   <-chan [][]byte
 		err     error
 	)
-	if context, err = zmq.NewContext(); err != nil {
+	if context, err = NewContext(); err != nil {
 		t.Fatalf(err.Error())
 	}
 	defer context.Close()
@@ -78,9 +80,9 @@ func TestNewSending(t *testing.T) {
 	}
 	cpush, _ = NewSending(push)
 	cpush <- [][]byte{[]byte("test")}
-	polling, err = NewPolling(context, 1)
-	defer polling.Close()
-	cpull, _ = polling.Start(pull, 1)
+	loop, err = NewLoop(context, 1)
+	defer loop.Close()
+	cpull, _ = loop.Start(pull, 1)
 	select {
 	case <-cpull:
 	case <-time.After(10 * time.Millisecond):
@@ -88,16 +90,16 @@ func TestNewSending(t *testing.T) {
 	}
 }
 
-func TestPolling(t *testing.T) {
+func TestLoop(t *testing.T) {
 	var (
-		context zmq.Context
-		pull    zmq.Socket
-		push    zmq.Socket
-		polling Polling
+		context Context
+		pull    Socket
+		push    Socket
+		loop    Loop
 		cpull   <-chan [][]byte
 		err     error
 	)
-	if context, err = zmq.NewContext(); err != nil {
+	if context, err = NewContext(); err != nil {
 		t.Fatalf(err.Error())
 	}
 	defer context.Close()
@@ -115,10 +117,10 @@ func TestPolling(t *testing.T) {
 	if err = push.Connect("inproc://test"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	polling, err = NewPolling(context, 1)
-	defer polling.Close()
+	loop, err = NewLoop(context, 1)
+	defer loop.Close()
 	push.Send([]byte("test"), 0)
-	cpull, err = polling.Start(pull, 1)
+	cpull, err = loop.Start(pull, 1)
 	select {
 	case <-cpull:
 	case <-time.After(10 * time.Millisecond):
@@ -126,15 +128,15 @@ func TestPolling(t *testing.T) {
 	}
 }
 
-func TestPolling_Sync(t *testing.T) {
+func TestLoop_Sync(t *testing.T) {
 	var (
-		context    zmq.Context
-		reQ, reP   zmq.Socket
-		polling    Polling
+		context    Context
+		reQ, reP   Socket
+		loop       Loop
 		creQ, creP <-chan [][]byte
 		err        error
 	)
-	if context, err = zmq.NewContext(); err != nil {
+	if context, err = NewContext(); err != nil {
 		t.Fatalf(err.Error())
 	}
 	defer context.Close()
@@ -152,21 +154,21 @@ func TestPolling_Sync(t *testing.T) {
 	if err = reP.Connect("inproc://test"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	polling, err = NewPolling(context, 1)
-	defer polling.Close()
-	if creP, err = polling.Start(reP, 1); err != nil {
+	loop, err = NewLoop(context, 1)
+	defer loop.Close()
+	if creP, err = loop.Start(reP, 1); err != nil {
 		t.Fatalf(err.Error())
 	}
-	if creQ, err = polling.Start(reQ, 1); err != nil {
+	if creQ, err = loop.Start(reQ, 1); err != nil {
 		t.Fatalf(err.Error())
 	}
-	polling.Sync(func() { reQ.Send([]byte("request"), 0) })
+	loop.Sync(func() { reQ.Send([]byte("request"), 0) })
 	done := false
 	for !done {
 		select {
 		case <-creP:
-			polling.Sync(func() { reP.Send([]byte("response"), 0) })
-			err = polling.Stop(reP)
+			loop.Sync(func() { reP.Send([]byte("response"), 0) })
+			err = loop.Stop(reP)
 			if err != nil {
 				t.Fatalf(err.Error())
 			}
@@ -179,16 +181,16 @@ func TestPolling_Sync(t *testing.T) {
 	}
 }
 
-func TestPolling_Sending(t *testing.T) {
+func TestLoop_Sending(t *testing.T) {
 	var (
-		context            zmq.Context
-		reQ, reP           zmq.Socket
-		polling            Polling
+		context            Context
+		reQ, reP           Socket
+		loop               Loop
 		creQrecv, crePrecv <-chan [][]byte
 		creQsend, crePsend chan<- [][]byte
 		err                error
 	)
-	if context, err = zmq.NewContext(); err != nil {
+	if context, err = NewContext(); err != nil {
 		t.Fatalf(err.Error())
 	}
 	defer context.Close()
@@ -206,23 +208,23 @@ func TestPolling_Sending(t *testing.T) {
 	if err = reP.Connect("inproc://test"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	polling, err = NewPolling(context, 1)
-	defer polling.Close()
-	if crePrecv, err = polling.Start(reP, 1); err != nil {
+	loop, err = NewLoop(context, 1)
+	defer loop.Close()
+	if crePrecv, err = loop.Start(reP, 1); err != nil {
 		t.Fatalf(err.Error())
 	}
-	if creQrecv, err = polling.Start(reQ, 1); err != nil {
+	if creQrecv, err = loop.Start(reQ, 1); err != nil {
 		t.Fatalf(err.Error())
 	}
-	crePsend, _ = polling.NewSending(reP)
-	creQsend, _ = polling.NewSending(reQ)
+	crePsend, _ = loop.NewSending(reP)
+	creQsend, _ = loop.NewSending(reQ)
 	creQsend <- [][]byte{[]byte("request")}
 	done := false
 	for !done {
 		select {
 		case <-crePrecv:
 			crePsend <- [][]byte{[]byte("response")}
-			err = polling.Stop(reP)
+			err = loop.Stop(reP)
 			if err != nil {
 				t.Fatalf(err.Error())
 			}
