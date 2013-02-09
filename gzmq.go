@@ -92,10 +92,6 @@ const (
 	SocketIsNil
 )
 
-const (
-	Forever time.Duration = -1 * time.Millisecond
-)
-
 func (e Error) Error() string {
 	switch e {
 	case ContextIsNil:
