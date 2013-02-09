@@ -8,3 +8,8 @@ This package aims to implement, first, the [recommended binding abstractions](ht
 
 * A context remembers its sockets and, when the context is closed, it will close all its sockets too.
 * `LINGER` is context option, applied to its sockets.
+
+## License
+
+Use of this source code is governed by a BSD-style license that can be found in
+the LICENSE file.
