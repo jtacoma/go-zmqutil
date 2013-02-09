@@ -93,11 +93,16 @@ func (gctx *context) SetVerbose(verbose bool) error {
 	if gctx == nil {
 		return ContextIsNil
 	}
+	if verbose == (gctx.logger != nil) {
+		return nil
+	}
+	gctx.logf("verbose = %t", gctx.logger != nil)
 	if verbose && gctx.logger == nil {
 		gctx.logger = log.New(os.Stdout, "", log.Lmicroseconds)
 	} else if !verbose {
 		gctx.logger = nil
 	}
+	gctx.logf("verbose = %t", gctx.logger != nil)
 	return nil
 }
 
