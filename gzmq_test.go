@@ -46,7 +46,7 @@ func TestContext_SetLinger(t *testing.T) {
 		closed := time.Now().Sub(closing)
 		if closed < linger {
 			t.Fatalf("closed in %s, expected >= %s", closed, linger)
-		} else if linger*2 < closed {
+		} else if linger*2+time.Millisecond < closed {
 			t.Fatalf("closed in %s, expected close to %s", closed, linger)
 		}
 	}
