@@ -61,7 +61,7 @@ type loopItem struct {
 }
 
 // NewLoop starts a new poll loop in a goroutine.
-func NewLoop(context Context) (*Loop, error) {
+func NewLoop(context *Context) (*Loop, error) {
 	notifySend, notifyRecv, err := newPair(context)
 	if err != nil {
 		return nil, err
@@ -264,7 +264,7 @@ func (p *Loop) loop(notifyRecv Socket) {
 }
 
 // newPair returns a PUSH/PULL pair of inproc sockets.
-func newPair(c Context) (send Socket, recv Socket, err error) {
+func newPair(c *Context) (send Socket, recv Socket, err error) {
 	send, err = c.NewSocket(zmq.PUSH)
 	if err != nil {
 		return

@@ -12,7 +12,7 @@ import (
 	zmq "github.com/alecthomas/gozmq"
 )
 
-func closeTestCtx(t *testing.T, ctx Context) {
+func closeTestCtx(t *testing.T, ctx *Context) {
 	done := make(chan int)
 	go func() {
 		ctx.Close()
@@ -73,7 +73,7 @@ func ExampleLoop() {
 
 func TestLoop(t *testing.T) {
 	var (
-		context Context
+		context *Context
 		pull    Socket
 		push    Socket
 		loop    *Loop
@@ -122,7 +122,7 @@ func TestLoop(t *testing.T) {
 
 func TestLoop_Sync(t *testing.T) {
 	var (
-		context    Context
+		context    *Context
 		reQ, reP   Socket
 		loop       *Loop
 		creQ, creP chan [][]byte
