@@ -41,26 +41,36 @@ func NewContext() (Context, error) {
 		return nil, err
 	}
 	return &context{
-		base:  base,
-		socks: make(map[*socket]bool),
+		base:   base,
+		socks:  make(map[*socket]bool),
+		linger: -1,
 	}, nil
 }
 
+// Close closes the context, blocking until the job is done.
+//
+// This will also propate the context's LINGER option to all sockets and close
+// each of them.
 func (gctx *context) Close() error {
 	if gctx == nil {
 		return ContextIsNil
 	}
 	var (
-		err    error
-		linger = int(gctx.linger / time.Millisecond)
+		err error
+		ms  int
 	)
+	if gctx.linger < 0 {
+		ms = -1
+	} else {
+		ms = int(gctx.linger / time.Millisecond)
+	}
 	gctx.logf("closing context: adjusting linger on sockets...")
 	for sock := range gctx.socks {
 		current, _ := sock.GetSockOptInt(zmq.LINGER)
-		if current >= 0 && current < linger {
+		if current >= 0 && current < ms {
 			continue
 		}
-		if sock_err := sock.SetSockOptInt(zmq.LINGER, linger); sock_err != nil {
+		if sock_err := sock.SetSockOptInt(zmq.LINGER, ms); sock_err != nil {
 			gctx.logf("closing context: error while setting linger on socket %p: %s", sock, sock_err.Error())
 			if err == nil {
 				err = sock_err
@@ -90,6 +100,8 @@ func (gctx *context) Close() error {
 	return err
 }
 
+// SetLinger adjusts the amount of time that Close() will wait for queued
+// messages to be sent.  The default is to wait forever.
 func (gctx *context) SetLinger(linger time.Duration) error {
 	if gctx == nil {
 		return ContextIsNil
@@ -98,6 +110,7 @@ func (gctx *context) SetLinger(linger time.Duration) error {
 	return nil
 }
 
+// SetVerbose enables (or disables) logging to os.Stdout.
 func (gctx *context) SetVerbose(verbose bool) error {
 	if gctx == nil {
 		return ContextIsNil
@@ -115,6 +128,8 @@ func (gctx *context) SetVerbose(verbose bool) error {
 	return nil
 }
 
+// NewSocket creates a new socket and registers it to be closed when the context
+// is closed.
 func (gctx *context) NewSocket(t zmq.SocketType) (Socket, error) {
 	base, err := gctx.base.NewSocket(t)
 	if err != nil {
@@ -136,15 +151,15 @@ func (gctx *context) logf(s string, args ...interface{}) {
 	}
 }
 
-type Error int
+type _err int
 
 const (
-	_                  = iota
-	ContextIsNil Error = iota
+	_                 = iota
+	ContextIsNil _err = _err(iota)
 	SocketIsNil
 )
 
-func (e Error) Error() string {
+func (e _err) Error() string {
 	switch e {
 	case ContextIsNil:
 		return "gctx: nil Context"

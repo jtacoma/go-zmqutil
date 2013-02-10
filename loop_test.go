@@ -40,7 +40,7 @@ func ExampleLoop() {
 	srv.Bind("tcp://127.0.0.1:5557")
 	cli.Connect("tcp://127.0.0.1:5557")
 
-	loop.PollSocket(srv, zmq.POLLIN, func(e *SocketEvent) error {
+	loop.HandleFunc(srv, zmq.POLLIN, func(e *SocketEvent) error {
 		msg, err := srv.RecvMultipart(0)
 		if err != nil {
 			return err
@@ -49,7 +49,7 @@ func ExampleLoop() {
 	})
 
 	recv := make(chan string, 2)
-	loop.PollSocket(cli, zmq.POLLIN, func(e *SocketEvent) error {
+	loop.HandleFunc(cli, zmq.POLLIN, func(e *SocketEvent) error {
 		msg, err := cli.Recv(0)
 		if err != nil {
 			return err
@@ -105,7 +105,7 @@ func TestLoop(t *testing.T) {
 	//loop.SetVerbose(true)
 	push.Send([]byte("test"), 0)
 	cpull = make(chan [][]byte)
-	_, err = loop.PollSocket(pull, zmq.POLLIN, func(e *SocketEvent) error {
+	loop.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) error {
 		msg, err := pull.RecvMultipart(0)
 		if err != nil {
 			return err
@@ -113,9 +113,6 @@ func TestLoop(t *testing.T) {
 		cpull <- msg
 		return nil
 	})
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
 	select {
 	case <-cpull:
 	case <-time.After(10 * time.Millisecond):
@@ -151,7 +148,7 @@ func TestLoop_Sync(t *testing.T) {
 	loop, err = NewLoop(context)
 	//loop.SetVerbose(true)
 	creP = make(chan [][]byte, 2)
-	repHandler, err := loop.PollSocket(reP, zmq.POLLIN, func(e *SocketEvent) error {
+	repHandler := loop.HandleFunc(reP, zmq.POLLIN, func(e *SocketEvent) error {
 		if msg, err := e.Socket.RecvMultipart(0); err != nil {
 			return err
 		} else {
@@ -159,11 +156,8 @@ func TestLoop_Sync(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
 	creQ = make(chan [][]byte, 2)
-	loop.PollSocket(reQ, zmq.POLLIN, func(e *SocketEvent) error {
+	loop.HandleFunc(reQ, zmq.POLLIN, func(e *SocketEvent) error {
 		if msg, err := e.Socket.RecvMultipart(0); err != nil {
 			return err
 		} else {
@@ -177,7 +171,7 @@ func TestLoop_Sync(t *testing.T) {
 		select {
 		case <-creP:
 			loop.Sync(func() { reP.Send([]byte("response"), 0) })
-			err = loop.PollSocketEnd(reP, zmq.POLLIN, repHandler)
+			err = loop.HandleEnd(reP, zmq.POLLIN, repHandler)
 			if err != nil {
 				t.Fatalf(err.Error())
 			}

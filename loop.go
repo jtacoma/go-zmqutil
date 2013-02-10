@@ -15,18 +15,35 @@ import (
 	zmq "github.com/alecthomas/gozmq"
 )
 
-// A SocketEvent represents an event on a socket.
+// A SocketEvent represents a set of events on a socket.
 type SocketEvent struct {
-	Socket Socket
-	Events zmq.PollEvents
+	Socket Socket         // socket on which events occurred
+	Events zmq.PollEvents // bitmask of events that occurred
 }
 
-// A SocketHandler is a comparable wrapper for what is really just a func.
-type SocketHandler struct {
+// A SocketHandler acts on a *SocketEvent.
+//
+// When a SocketHandler returns an error to a poll loop, the loop will exit.  An
+// instance of this interface is returned from *Loop.HandleFunc(), and can
+// be passed to *Loop.HandleEnd() to unsubscribe.
+type SocketHandler interface {
+	HandleSocketEvent(*SocketEvent) error
+}
+
+type socketHandlerFunc struct {
 	fun func(*SocketEvent) error
 }
 
+func (h socketHandlerFunc) HandleSocketEvent(e *SocketEvent) error {
+	return h.fun(e)
+}
+
 // A Loop is a ZeroMQ poll loop running in a goroutine.
+//
+// The loop will respond to events on sockets by calling specified handlers.
+// Since a Socket is not thread-safe for sending and receiving, a Socket being
+// polled by a *Loop should not be operated on outside of handlers added through
+// the 
 type Loop struct {
 	notifySend Socket         // to notify goroutine of pending commands
 	commands   chan func()    // pending commands
@@ -34,19 +51,16 @@ type Loop struct {
 	fault      error          // error, if any, that caused loop to stop
 	closing    bool           // true if loop is either stopping or stopped
 	running    sync.WaitGroup // becomes zero when loop is finished
-	logger     *log.Logger
+	logger     *log.Logger    // changes when SetVerbose is called
 }
 
 type loopItem struct {
 	socket  Socket         // socket to poll
 	events  zmq.PollEvents // events to poll for
-	handler *SocketHandler // func to call when events occur
+	handler SocketHandler  // func to call when events occur
 }
 
-// NewLoop starts a poll loop in a goroutine.
-//
-// The cmdBuf argument specifies the length of the buffered channel that
-// will receive commands to be executed inside the polling loop.
+// NewLoop starts a new poll loop in a goroutine.
 func NewLoop(context Context) (*Loop, error) {
 	notifySend, notifyRecv, err := newPair(context)
 	if err != nil {
@@ -78,34 +92,35 @@ func (p *Loop) Close() error {
 	return p.fault
 }
 
-// PollSocket adds a socket to a poll loop.
-//
-// Notice that while this loop is running you must not use the socket
-// in any other way except within the scope of a func passed to the Sync
-// method.
-func (p *Loop) PollSocket(s Socket, e zmq.PollEvents, h func(*SocketEvent) error) (handler *SocketHandler, err error) {
+// HandleFunc adds a socket event handler to p.
+func (p *Loop) Handle(s Socket, e zmq.PollEvents, h SocketHandler) {
 	done := make(chan int)
-	handler = &SocketHandler{h}
 	p.Sync(func() {
 		var exists bool
 		for _, existing := range p.items {
-			if existing.socket == s && existing.handler == handler {
+			if existing.socket == s && existing.handler == h {
 				existing.events = existing.events | e
 				exists = true
 			}
 		}
 		if !exists {
-			p.items = append(p.items, loopItem{s, e, handler})
+			p.items = append(p.items, loopItem{s, e, h})
 		}
 		done <- 1
 	})
 	<-done
-	return
 }
 
-// Stop removes a ZeroMQ socket from a poll loop, so that it will no
+// HandleFunc adds a socket event handler to p.
+func (p *Loop) HandleFunc(s Socket, e zmq.PollEvents, h func(*SocketEvent) error) SocketHandler {
+	handler := &socketHandlerFunc{h}
+	p.Handle(s, e, handler)
+	return handler
+}
+
+// HandleEnd removes a ZeroMQ socket from a poll loop, so that it will no
 // longer be polled for incoming messages.
-func (p *Loop) PollSocketEnd(s Socket, e zmq.PollEvents, h *SocketHandler) (err error) {
+func (p *Loop) HandleEnd(s Socket, e zmq.PollEvents, h SocketHandler) (err error) {
 	done := make(chan int)
 	p.Sync(func() {
 		index := -1
@@ -128,6 +143,7 @@ func (p *Loop) PollSocketEnd(s Socket, e zmq.PollEvents, h *SocketHandler) (err 
 	return err
 }
 
+// SetVerbose enables (or disables) logging to os.Stdout.
 func (p *Loop) SetVerbose(verbose bool) error {
 	if verbose == (p.logger != nil) {
 		return nil
@@ -142,9 +158,11 @@ func (p *Loop) SetVerbose(verbose bool) error {
 	return nil
 }
 
-// Sync executes a function outside of the poll.
+// Sync enqueues a function to be called inside the poll loop.
 //
-// Useful for performing operations on the sockets being polled.
+// Useful for performing operations on the sockets being polled.  For example,
+// when responding to some other kind of event by sending a message on a socket
+// that is being polled.
 func (p *Loop) Sync(f func()) {
 	p.notifySend.Send([]byte{0}, 0)
 	p.commands <- f
@@ -216,7 +234,7 @@ func (p *Loop) loop(notifyRecv Socket) {
 			}
 			for _, loopItem := range p.items {
 				if loopItem.socket == pollItem.Socket && (loopItem.events&pollItem.REvents) != 0 {
-					if err = loopItem.handler.fun(&event); err != nil {
+					if err = loopItem.handler.HandleSocketEvent(&event); err != nil {
 						p.fault = err
 						p.closing = true
 						continue //?
@@ -245,6 +263,7 @@ func (p *Loop) loop(notifyRecv Socket) {
 	}
 }
 
+// newPair returns a PUSH/PULL pair of inproc sockets.
 func newPair(c Context) (send Socket, recv Socket, err error) {
 	send, err = c.NewSocket(zmq.PUSH)
 	if err != nil {
@@ -268,9 +287,13 @@ func newPair(c Context) (send Socket, recv Socket, err error) {
 	return
 }
 
-var inprocNext = 1
-
+// newInprocAddress returns a unique incproc address.
 func newInprocAddress() string {
+	inprocNextMutex.Lock()
+	defer inprocNextMutex.Unlock()
 	inprocNext += 1
 	return "inproc://github.com/jtacoma/gzmq/" + strconv.Itoa(inprocNext-1)
 }
+
+var inprocNext = 1
+var inprocNextMutex sync.Mutex
