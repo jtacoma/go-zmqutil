@@ -16,25 +16,11 @@ import (
 type Context struct {
 	base   zmq.Context
 	linger time.Duration
-	socks  map[*socket]bool
+	socks  map[*Socket]bool
 	logger *log.Logger
 }
 
-type Socket interface {
-	Close() error
-
-	Bind(string) error
-	Connect(string) error
-
-	Recv(zmq.SendRecvOption) ([]byte, error)
-	RecvMultipart(zmq.SendRecvOption) ([][]byte, error)
-	Send([]byte, zmq.SendRecvOption) error
-	SendMultipart([][]byte, zmq.SendRecvOption) error
-	GetLinger() (time.Duration, error)
-	SetLinger(time.Duration) error
-}
-
-type socket struct {
+type Socket struct {
 	base zmq.Socket
 	ctx  *Context
 }
@@ -47,7 +33,7 @@ func NewContext() (*Context, error) {
 	}
 	return &Context{
 		base:   base,
-		socks:  make(map[*socket]bool),
+		socks:  make(map[*Socket]bool),
 		linger: -1,
 	}, nil
 }
@@ -79,7 +65,7 @@ func (gctx *Context) Close() error {
 	var wg sync.WaitGroup
 	for sock := range gctx.socks {
 		wg.Add(1)
-		go func(s *socket) {
+		go func(s *Socket) {
 			if sock_err := s.Close(); sock_err != nil && sock_err != zmq.ENOTSOCK {
 				gctx.logf("closing context: error while closing socket %p: %s", s, sock_err.Error())
 				if err == nil {
@@ -129,13 +115,13 @@ func (gctx *Context) SetVerbose(verbose bool) error {
 
 // NewSocket creates a new socket and registers it to be closed when the context
 // is closed.
-func (gctx *Context) NewSocket(t zmq.SocketType) (Socket, error) {
+func (gctx *Context) NewSocket(t zmq.SocketType) (*Socket, error) {
 	base, err := gctx.base.NewSocket(t)
 	if err != nil {
 		gctx.logf("error while creating socket: %s", err.Error())
 		return nil, err
 	}
-	sock := &socket{
+	sock := &Socket{
 		base: base,
 		ctx:  gctx,
 	}
@@ -150,27 +136,27 @@ func (gctx *Context) logf(s string, args ...interface{}) {
 	}
 }
 
-func (s *socket) Close() error {
+func (s *Socket) Close() error {
 	return s.base.Close()
 }
 
-func (s *socket) Bind(addr string) error    { return s.base.Bind(addr) }
-func (s *socket) Connect(addr string) error { return s.base.Connect(addr) }
+func (s *Socket) Bind(addr string) error    { return s.base.Bind(addr) }
+func (s *Socket) Connect(addr string) error { return s.base.Connect(addr) }
 
-func (s *socket) Recv(flags zmq.SendRecvOption) ([]byte, error) {
+func (s *Socket) Recv(flags zmq.SendRecvOption) ([]byte, error) {
 	return s.base.Recv(flags)
 }
-func (s *socket) RecvMultipart(flags zmq.SendRecvOption) ([][]byte, error) {
+func (s *Socket) RecvMultipart(flags zmq.SendRecvOption) ([][]byte, error) {
 	return s.base.RecvMultipart(flags)
 }
-func (s *socket) Send(frame []byte, flags zmq.SendRecvOption) error {
+func (s *Socket) Send(frame []byte, flags zmq.SendRecvOption) error {
 	return s.base.Send(frame, flags)
 }
-func (s *socket) SendMultipart(msg [][]byte, flags zmq.SendRecvOption) error {
+func (s *Socket) SendMultipart(msg [][]byte, flags zmq.SendRecvOption) error {
 	return s.base.SendMultipart(msg, flags)
 }
 
-func (s *socket) GetLinger() (time.Duration, error) {
+func (s *Socket) GetLinger() (time.Duration, error) {
 	if s == nil {
 		return -1, SocketIsNil
 	}
@@ -184,7 +170,7 @@ func (s *socket) GetLinger() (time.Duration, error) {
 	return time.Duration(ms) * time.Millisecond, nil
 }
 
-func (s *socket) SetLinger(linger time.Duration) error {
+func (s *Socket) SetLinger(linger time.Duration) error {
 	if s == nil {
 		return SocketIsNil
 	}

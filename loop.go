@@ -17,7 +17,7 @@ import (
 
 // A SocketEvent represents a set of events on a socket.
 type SocketEvent struct {
-	Socket Socket         // socket on which events occurred
+	Socket *Socket        // socket on which events occurred
 	Events zmq.PollEvents // bitmask of events that occurred
 }
 
@@ -45,7 +45,7 @@ func (h socketHandlerFunc) HandleSocketEvent(e *SocketEvent) error {
 // polled by a *Loop should not be operated on outside of handlers added through
 // the 
 type Loop struct {
-	notifySend Socket         // to notify goroutine of pending commands
+	notifySend *Socket        // to notify goroutine of pending commands
 	commands   chan func()    // pending commands
 	items      []loopItem     // sockets with their channels
 	fault      error          // error, if any, that caused loop to stop
@@ -55,7 +55,7 @@ type Loop struct {
 }
 
 type loopItem struct {
-	socket  *socket        // socket to poll
+	socket  *Socket        // socket to poll
 	events  zmq.PollEvents // events to poll for
 	handler SocketHandler  // func to call when events occur
 }
@@ -70,7 +70,7 @@ func NewLoop(context *Context) (*Loop, error) {
 		notifySend: notifySend,
 		commands:   make(chan func(), 64),
 		items: []loopItem{
-			loopItem{notifyRecv.(*socket), zmq.POLLIN, nil},
+			loopItem{notifyRecv, zmq.POLLIN, nil},
 		},
 	}
 	p.running.Add(1)
@@ -93,7 +93,7 @@ func (p *Loop) Close() error {
 }
 
 // HandleFunc adds a socket event handler to p.
-func (p *Loop) Handle(s Socket, e zmq.PollEvents, h SocketHandler) {
+func (p *Loop) Handle(s *Socket, e zmq.PollEvents, h SocketHandler) {
 	done := make(chan int)
 	p.Sync(func() {
 		var exists bool
@@ -104,7 +104,7 @@ func (p *Loop) Handle(s Socket, e zmq.PollEvents, h SocketHandler) {
 			}
 		}
 		if !exists {
-			p.items = append(p.items, loopItem{s.(*socket), e, h})
+			p.items = append(p.items, loopItem{s, e, h})
 		}
 		done <- 1
 	})
@@ -112,7 +112,7 @@ func (p *Loop) Handle(s Socket, e zmq.PollEvents, h SocketHandler) {
 }
 
 // HandleFunc adds a socket event handler to p.
-func (p *Loop) HandleFunc(s Socket, e zmq.PollEvents, h func(*SocketEvent) error) SocketHandler {
+func (p *Loop) HandleFunc(s *Socket, e zmq.PollEvents, h func(*SocketEvent) error) SocketHandler {
 	handler := &socketHandlerFunc{h}
 	p.Handle(s, e, handler)
 	return handler
@@ -120,7 +120,7 @@ func (p *Loop) HandleFunc(s Socket, e zmq.PollEvents, h func(*SocketEvent) error
 
 // HandleEnd removes a ZeroMQ socket from a poll loop, so that it will no
 // longer be polled for incoming messages.
-func (p *Loop) HandleEnd(s Socket, e zmq.PollEvents, h SocketHandler) (err error) {
+func (p *Loop) HandleEnd(s *Socket, e zmq.PollEvents, h SocketHandler) (err error) {
 	done := make(chan int)
 	p.Sync(func() {
 		index := -1
@@ -177,7 +177,7 @@ func (p *Loop) logf(s string, args ...interface{}) {
 	}
 }
 
-func (p *Loop) loop(notifyRecv Socket) {
+func (p *Loop) loop(notifyRecv *Socket) {
 
 	defer func() {
 		p.logf("loop: closing notification-receiving socket...")
@@ -264,7 +264,7 @@ func (p *Loop) loop(notifyRecv Socket) {
 }
 
 // newPair returns a PUSH/PULL pair of inproc sockets.
-func newPair(c *Context) (send Socket, recv Socket, err error) {
+func newPair(c *Context) (send *Socket, recv *Socket, err error) {
 	send, err = c.NewSocket(zmq.PUSH)
 	if err != nil {
 		return

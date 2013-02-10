@@ -74,8 +74,8 @@ func ExampleLoop() {
 func TestLoop(t *testing.T) {
 	var (
 		context *Context
-		pull    Socket
-		push    Socket
+		pull    *Socket
+		push    *Socket
 		loop    *Loop
 		cpull   chan [][]byte
 		err     error
@@ -123,7 +123,7 @@ func TestLoop(t *testing.T) {
 func TestLoop_Sync(t *testing.T) {
 	var (
 		context    *Context
-		reQ, reP   Socket
+		reQ, reP   *Socket
 		loop       *Loop
 		creQ, creP chan [][]byte
 		err        error
