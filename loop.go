@@ -55,7 +55,7 @@ type Loop struct {
 }
 
 type loopItem struct {
-	socket  Socket         // socket to poll
+	socket  *socket        // socket to poll
 	events  zmq.PollEvents // events to poll for
 	handler SocketHandler  // func to call when events occur
 }
@@ -70,7 +70,7 @@ func NewLoop(context Context) (*Loop, error) {
 		notifySend: notifySend,
 		commands:   make(chan func(), 64),
 		items: []loopItem{
-			loopItem{notifyRecv, zmq.POLLIN, nil},
+			loopItem{notifyRecv.(*socket), zmq.POLLIN, nil},
 		},
 	}
 	p.running.Add(1)
@@ -104,7 +104,7 @@ func (p *Loop) Handle(s Socket, e zmq.PollEvents, h SocketHandler) {
 			}
 		}
 		if !exists {
-			p.items = append(p.items, loopItem{s, e, h})
+			p.items = append(p.items, loopItem{s.(*socket), e, h})
 		}
 		done <- 1
 	})
@@ -194,14 +194,14 @@ func (p *Loop) loop(notifyRecv Socket) {
 		for _, item := range p.items {
 			var exists bool
 			for _, existing := range pollItems {
-				if existing.Socket == item.socket {
+				if existing.Socket == item.socket.base {
 					existing.Events = existing.Events | item.events
 					exists = true
 				}
 			}
 			if !exists {
 				pollItems = append(pollItems, zmq.PollItem{
-					Socket: item.socket,
+					Socket: item.socket.base,
 					Events: item.events,
 				})
 			}
@@ -229,11 +229,11 @@ func (p *Loop) loop(notifyRecv Socket) {
 		for i := 1; i < len(pollItems); i++ {
 			pollItem := pollItems[i]
 			event := SocketEvent{
-				Socket: pollItem.Socket,
 				Events: pollItem.REvents,
 			}
 			for _, loopItem := range p.items {
-				if loopItem.socket == pollItem.Socket && (loopItem.events&pollItem.REvents) != 0 {
+				if loopItem.socket.base == pollItem.Socket && (loopItem.events&pollItem.REvents) != 0 {
+					event.Socket = loopItem.socket
 					if err = loopItem.handler.HandleSocketEvent(&event); err != nil {
 						p.fault = err
 						p.closing = true
@@ -269,12 +269,12 @@ func newPair(c Context) (send Socket, recv Socket, err error) {
 	if err != nil {
 		return
 	}
-	send.SetSockOptInt(zmq.LINGER, 0)
+	send.SetLinger(0)
 	recv, err = c.NewSocket(zmq.PULL)
 	if err != nil {
 		return
 	}
-	send.SetSockOptInt(zmq.LINGER, 0)
+	send.SetLinger(0)
 	addr := newInprocAddress()
 	err = send.Bind(addr)
 	if err != nil {

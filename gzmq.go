@@ -27,11 +27,23 @@ type context struct {
 	logger *log.Logger
 }
 
-type Socket zmq.Socket
+type Socket interface {
+	Close() error
+
+	Bind(string) error
+	Connect(string) error
+
+	Recv(zmq.SendRecvOption) ([]byte, error)
+	RecvMultipart(zmq.SendRecvOption) ([][]byte, error)
+	Send([]byte, zmq.SendRecvOption) error
+	SendMultipart([][]byte, zmq.SendRecvOption) error
+	GetLinger() (time.Duration, error)
+	SetLinger(time.Duration) error
+}
 
 type socket struct {
-	zmq.Socket
-	ctx *context
+	base zmq.Socket
+	ctx  *context
 }
 
 // NewContext returns a new context or nil.
@@ -57,20 +69,14 @@ func (gctx *context) Close() error {
 	}
 	var (
 		err error
-		ms  int
 	)
-	if gctx.linger < 0 {
-		ms = -1
-	} else {
-		ms = int(gctx.linger / time.Millisecond)
-	}
 	gctx.logf("closing context: adjusting linger on sockets...")
 	for sock := range gctx.socks {
-		current, _ := sock.GetSockOptInt(zmq.LINGER)
-		if current >= 0 && current < ms {
+		current, _ := sock.GetLinger()
+		if current >= 0 && current < gctx.linger {
 			continue
 		}
-		if sock_err := sock.SetSockOptInt(zmq.LINGER, ms); sock_err != nil {
+		if sock_err := sock.SetLinger(gctx.linger); sock_err != nil {
 			gctx.logf("closing context: error while setting linger on socket %p: %s", sock, sock_err.Error())
 			if err == nil {
 				err = sock_err
@@ -137,8 +143,8 @@ func (gctx *context) NewSocket(t zmq.SocketType) (Socket, error) {
 		return nil, err
 	}
 	sock := &socket{
-		zmq.Socket: base,
-		ctx:        gctx,
+		base: base,
+		ctx:  gctx,
 	}
 	gctx.socks[sock] = true
 	gctx.logf("created socket %p.", sock)
@@ -149,6 +155,53 @@ func (gctx *context) logf(s string, args ...interface{}) {
 	if gctx.logger != nil {
 		gctx.logger.Printf("[gzmq] "+s, args...)
 	}
+}
+
+func (s *socket) Close() error {
+	return s.base.Close()
+}
+
+func (s *socket) Bind(addr string) error    { return s.base.Bind(addr) }
+func (s *socket) Connect(addr string) error { return s.base.Connect(addr) }
+
+func (s *socket) Recv(flags zmq.SendRecvOption) ([]byte, error) {
+	return s.base.Recv(flags)
+}
+func (s *socket) RecvMultipart(flags zmq.SendRecvOption) ([][]byte, error) {
+	return s.base.RecvMultipart(flags)
+}
+func (s *socket) Send(frame []byte, flags zmq.SendRecvOption) error {
+	return s.base.Send(frame, flags)
+}
+func (s *socket) SendMultipart(msg [][]byte, flags zmq.SendRecvOption) error {
+	return s.base.SendMultipart(msg, flags)
+}
+
+func (s *socket) GetLinger() (time.Duration, error) {
+	if s == nil {
+		return -1, SocketIsNil
+	}
+	ms, err := s.base.GetSockOptInt(zmq.LINGER)
+	if err != nil {
+		return -1, err
+	}
+	if ms < 0 {
+		return -1, nil
+	}
+	return time.Duration(ms) * time.Millisecond, nil
+}
+
+func (s *socket) SetLinger(linger time.Duration) error {
+	if s == nil {
+		return SocketIsNil
+	}
+	var ms int
+	if linger < 0 {
+		ms = -1
+	} else {
+		ms = int(linger / time.Millisecond)
+	}
+	return s.base.SetSockOptInt(zmq.LINGER, ms)
 }
 
 type _err int

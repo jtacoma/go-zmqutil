@@ -11,13 +11,14 @@ This project is in early development, the public API may change significantly be
 ## Implemented Features
 
 * A context remembers its sockets and, when the context is closed, it will close all its sockets too.
-* `LINGER` is context option, applied to its sockets.
+* Linger is a context option, applied to its sockets when the context is closed.
 * Reactor loop for socket events.
+* All options are available through option-specific getter/setter methods (in progress: not all options supported).
 
 ## Planned Features
 
-* API for all socket options (get/set as appropriate)
 * Bind method that allows "bind to random free port" (and returns resulting port).
+* The build-tag buck stops here: unsupported or obsolete methods return errors at runtime.
 
 ## License
 
