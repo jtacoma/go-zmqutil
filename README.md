@@ -1,4 +1,4 @@
-# gzmq
+# gozmqutil
 
 [ØMQ](http://www.zeromq.org) abstractions for [Go](http://golang.org).
 
