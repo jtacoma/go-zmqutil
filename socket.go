@@ -35,6 +35,19 @@ func (s *Socket) SendMultipart(msg [][]byte, flags zmq.SendRecvOption) error {
 	return s.base.SendMultipart(msg, flags)
 }
 
+// Socket Option Getters
+
+func (s *Socket) Type() (zmq.SocketType, error)            { return zmq.PUB, NotImplemented }
+func (s *Socket) RecvMore() (bool, error)                  { return false, NotImplemented }
+func (s *Socket) SendHWM() (int, error)                    { return 0, NotImplemented }
+func (s *Socket) RecvHWM() (int, error)                    { return 0, NotImplemented }
+func (s *Socket) Affinity() (int, error)                   { return 0, NotImplemented }
+func (s *Socket) Identity() (string, error)                { return "", NotImplemented }
+func (s *Socket) Rate() (int, error)                       { return 0, NotImplemented }
+func (s *Socket) RecoveryInterval() (time.Duration, error) { return 0, NotImplemented }
+func (s *Socket) SendBuf() (int, error)                    { return 0, NotImplemented }
+func (s *Socket) RecvBuf() (int, error)                    { return 0, NotImplemented }
+
 func (s *Socket) Linger() (time.Duration, error) {
 	if s == nil {
 		return -1, SocketIsNil
@@ -48,6 +61,25 @@ func (s *Socket) Linger() (time.Duration, error) {
 	}
 	return time.Duration(ms) * time.Millisecond, nil
 }
+
+func (s *Socket) ReconnectInterval() (time.Duration, error)    { return 0, NotImplemented }
+func (s *Socket) ReconnectIntervalMax() (time.Duration, error) { return 0, NotImplemented }
+func (s *Socket) Backlog() (int, error)                        { return 0, NotImplemented }
+func (s *Socket) MaxMsgSize() (int64, error)                   { return 0, NotImplemented }
+func (s *Socket) MulticastHops() (int, error)                  { return 0, NotImplemented }
+func (s *Socket) RecvTimeout() (time.Duration, error)          { return 0, NotImplemented }
+func (s *Socket) SendTimeout() (time.Duration, error)          { return 0, NotImplemented }
+func (s *Socket) IPv6() (bool, error)                          { return false, NotImplemented }
+func (s *Socket) DelayAttachOnConnect() (bool, error)          { return false, NotImplemented }
+func (s *Socket) FD() (interface{}, error)                     { return 0, NotImplemented }
+func (s *Socket) Events() (zmq.PollEvents, error)              { return 0, NotImplemented }
+func (s *Socket) LastEndpoint() (string, error)                { return "", NotImplemented }
+func (s *Socket) TCPKeepAlive() (int, error)                   { return 0, NotImplemented }
+func (s *Socket) TCPKeepAliveIdle() (int, error)               { return 0, NotImplemented }
+func (s *Socket) TCPKeepAliveCount() (int, error)              { return 0, NotImplemented }
+func (s *Socket) TCPKeepAliveInterval() (time.Duration, error) { return 0, NotImplemented }
+
+// Socket Option Setters 
 
 // Sets the high water mark for outbound messages on the specified socket.
 //
