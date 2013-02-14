@@ -31,7 +31,7 @@ func closeTestCtx(t *testing.T, ctx *Context) {
 
 func ExampleLoop() {
 	context, _ := NewContext()
-	defer closeTestCtx(nil, context)
+	defer context.Close()
 
 	loop, _ := NewLoop(context)
 
@@ -58,7 +58,7 @@ func ExampleLoop() {
 		return nil
 	})
 
-	loop.Sync(func() {
+	loop.Enqueue(func() {
 		cli.Send([]byte("Echo!"), 0)
 	})
 
@@ -120,7 +120,7 @@ func TestLoop(t *testing.T) {
 	}
 }
 
-func TestLoop_Sync(t *testing.T) {
+func TestLoop_Enqueue(t *testing.T) {
 	var (
 		context    *Context
 		reQ, reP   *Socket
@@ -165,13 +165,13 @@ func TestLoop_Sync(t *testing.T) {
 		}
 		return nil
 	})
-	loop.Sync(func() { reQ.Send([]byte("request"), 0) })
+	loop.Enqueue(func() { reQ.Send([]byte("request"), 0) })
 	done := false
 	for !done {
 		select {
 		case <-creP:
-			loop.Sync(func() { reP.Send([]byte("response"), 0) })
-			err = loop.HandleEnd(reP, zmq.POLLIN, repHandler)
+			loop.Enqueue(func() { reP.Send([]byte("response"), 0) })
+			err = loop.Unhandle(reP, zmq.POLLIN, repHandler)
 			if err != nil {
 				t.Fatalf(err.Error())
 			}

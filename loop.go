@@ -4,8 +4,6 @@
 
 package gozmqutil
 
-// TODO: make loop.fault available to callers outside this package.
-
 import (
 	"log"
 	"os"
@@ -16,6 +14,7 @@ import (
 )
 
 // A SocketEvent represents a set of events on a socket.
+//
 type SocketEvent struct {
 	Socket *Socket        // socket on which events occurred
 	Events zmq.PollEvents // bitmask of events that occurred
@@ -24,8 +23,9 @@ type SocketEvent struct {
 // A SocketHandler acts on a *SocketEvent.
 //
 // When a SocketHandler returns an error to a poll loop, the loop will exit.  An
-// instance of this interface is returned from *Loop.HandleFunc(), and can
-// be passed to *Loop.HandleEnd() to unsubscribe.
+// instance of this interface is returned from *Loop.HandleFunc(), and can be
+// passed to *Loop.Unhandle() to unsubscribe.
+//
 type SocketHandler interface {
 	HandleSocketEvent(*SocketEvent) error
 }
@@ -40,10 +40,14 @@ func (h socketHandlerFunc) HandleSocketEvent(e *SocketEvent) error {
 
 // A Loop is a ZeroMQ poll loop running in a goroutine.
 //
-// The loop will respond to events on sockets by calling specified handlers.
-// Since a Socket is not thread-safe for sending and receiving, a Socket being
-// polled by a *Loop should not be operated on outside of handlers added through
-// the 
+// The loop will respond to events on sockets by calling handlers that have been
+// associated with those events on those sockets through Handle() and
+// HandleFunc().
+//
+// Note: since a Socket is not thread-safe, a Socket being polled by a Loop
+// should not be operated on outside the scope of a handler or of a func passed
+// to Enqueue().
+//
 type Loop struct {
 	notifySend *Socket        // to notify goroutine of pending commands
 	commands   chan func()    // pending commands
@@ -61,6 +65,7 @@ type loopItem struct {
 }
 
 // NewLoop starts a new poll loop in a goroutine.
+//
 func NewLoop(context *Context) (*Loop, error) {
 	notifySend, notifyRecv, err := newPair(context)
 	if err != nil {
@@ -80,10 +85,15 @@ func NewLoop(context *Context) (*Loop, error) {
 
 // Close causes the poll loop to exit, and blocks until this is done.
 //
-// This will not close polled sockets.  The loop cannot be re-opened.
+// This will not close polled sockets and the loop cannot be re-opened.  To
+// temporarily stop the loop, see *Loop.Enqueue().
+//
+// The returned error value does not necessarily correspond to a failure to close
+// the loop, but may be an error that caused the loop to close.
+//
 func (p *Loop) Close() error {
 	p.logf("loop: enqueuing func to mark as closing...")
-	p.Sync(func() { p.closing = true })
+	p.Enqueue(func() { p.closing = true })
 	p.logf("loop: closing the notification-sending socket...")
 	p.notifySend.Close()
 	p.logf("loop: waiting for loop to stop runnning...")
@@ -92,10 +102,11 @@ func (p *Loop) Close() error {
 	return p.fault
 }
 
-// HandleFunc adds a socket event handler to p.
+// Handle adds a socket event handler to p.
+//
 func (p *Loop) Handle(s *Socket, e zmq.PollEvents, h SocketHandler) {
 	done := make(chan int)
-	p.Sync(func() {
+	p.Enqueue(func() {
 		var exists bool
 		for _, existing := range p.items {
 			if existing.socket == s && existing.handler == h {
@@ -112,17 +123,21 @@ func (p *Loop) Handle(s *Socket, e zmq.PollEvents, h SocketHandler) {
 }
 
 // HandleFunc adds a socket event handler to p.
+//
 func (p *Loop) HandleFunc(s *Socket, e zmq.PollEvents, h func(*SocketEvent) error) SocketHandler {
 	handler := &socketHandlerFunc{h}
 	p.Handle(s, e, handler)
 	return handler
 }
 
-// HandleEnd removes a ZeroMQ socket from a poll loop, so that it will no
-// longer be polled for incoming messages.
-func (p *Loop) HandleEnd(s *Socket, e zmq.PollEvents, h SocketHandler) (err error) {
+// Unhandle removes a handler from p for the given socket and socket events.
+//
+// If there are no remaining handlers for any event on this socket, the socket
+// itself will cease to be polled in p.
+//
+func (p *Loop) Unhandle(s *Socket, e zmq.PollEvents, h SocketHandler) (err error) {
 	done := make(chan int)
-	p.Sync(func() {
+	p.Enqueue(func() {
 		index := -1
 		for i, existing := range p.items {
 			if existing.socket == s && existing.handler == h {
@@ -144,6 +159,7 @@ func (p *Loop) HandleEnd(s *Socket, e zmq.PollEvents, h SocketHandler) (err erro
 }
 
 // SetVerbose enables (or disables) logging to os.Stdout.
+//
 func (p *Loop) SetVerbose(verbose bool) error {
 	if verbose == (p.logger != nil) {
 		return nil
@@ -158,12 +174,15 @@ func (p *Loop) SetVerbose(verbose bool) error {
 	return nil
 }
 
-// Sync enqueues a function to be called inside the poll loop.
+// Enqueue enqueues a function to be called inside the poll loop.
 //
-// Useful for performing operations on the sockets being polled.  For example,
-// when responding to some other kind of event by sending a message on a socket
-// that is being polled.
-func (p *Loop) Sync(f func()) {
+// Useful for performing synchronous operations on the sockets being polled, for
+// example: to send a message on a socket that is also being polled for incoming
+// messages.
+//
+// Note: Enqueue submits f to a queue and returns before f is called.
+//
+func (p *Loop) Enqueue(f func()) {
 	p.notifySend.Send([]byte{0}, 0)
 	p.commands <- f
 }
