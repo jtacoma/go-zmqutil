@@ -5,8 +5,6 @@
 package gozmqutil
 
 import (
-	"time"
-
 	zmq "github.com/alecthomas/gozmq"
 )
 
@@ -33,31 +31,4 @@ func (s *Socket) Send(frame []byte, flags zmq.SendRecvOption) error {
 }
 func (s *Socket) SendMultipart(msg [][]byte, flags zmq.SendRecvOption) error {
 	return s.base.SendMultipart(msg, flags)
-}
-
-func (s *Socket) Linger() (time.Duration, error) {
-	if s == nil {
-		return -1, SocketIsNil
-	}
-	ms, err := s.base.GetSockOptInt(zmq.LINGER)
-	if err != nil {
-		return -1, err
-	}
-	if ms < 0 {
-		return -1, nil
-	}
-	return time.Duration(ms) * time.Millisecond, nil
-}
-
-func (s *Socket) SetLinger(linger time.Duration) error {
-	if s == nil {
-		return SocketIsNil
-	}
-	var ms int
-	if linger < 0 {
-		ms = -1
-	} else {
-		ms = int(linger / time.Millisecond)
-	}
-	return s.base.SetSockOptInt(zmq.LINGER, ms)
 }
