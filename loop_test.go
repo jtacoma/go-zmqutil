@@ -33,34 +33,25 @@ func ExampleLoop() {
 	context, _ := NewContext()
 	defer context.Close()
 
-	loop, _ := NewLoop(context)
+	loop := NewLoop(context)
 
 	cli, _ := context.NewSocket(zmq.REQ)
 	srv, _ := context.NewSocket(zmq.ROUTER)
 	srv.Bind("tcp://127.0.0.1:5557")
 	cli.Connect("tcp://127.0.0.1:5557")
 
-	loop.HandleFunc(srv, zmq.POLLIN, func(e *SocketEvent) error {
-		msg, err := srv.RecvMultipart(0)
-		if err != nil {
-			return err
-		}
-		return srv.SendMultipart(msg, 0)
+	loop.HandleFunc(srv, zmq.POLLIN, func(e *SocketEvent) {
+		e.Fault = srv.SendMultipart(e.Message, 0)
 	})
 
 	recv := make(chan string, 2)
-	loop.HandleFunc(cli, zmq.POLLIN, func(e *SocketEvent) error {
-		msg, err := cli.Recv(0)
-		if err != nil {
-			return err
-		}
-		recv <- string(msg)
-		return nil
+	loop.HandleFunc(cli, zmq.POLLIN, func(e *SocketEvent) {
+		recv <- string(e.Message[0])
 	})
 
-	loop.Enqueue(func() {
-		cli.Send([]byte("Echo!"), 0)
-	})
+	cli.Send([]byte("Echo!"), 0)
+
+	go loop.Run()
 
 	// Receive response:
 	msg := <-recv
@@ -71,7 +62,7 @@ func ExampleLoop() {
 	// Echo!
 }
 
-func TestLoop(t *testing.T) {
+func TestLoop_Step(t *testing.T) {
 	var (
 		context *Context
 		pull    *Socket
@@ -98,88 +89,19 @@ func TestLoop(t *testing.T) {
 	if err = push.Connect("tcp://127.0.0.1:5555"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	loop, err = NewLoop(context)
+	loop = NewLoop(context)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
 	//loop.SetVerbose(true)
 	push.Send([]byte("test"), 0)
-	cpull = make(chan [][]byte)
-	loop.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) error {
-		msg, err := pull.RecvMultipart(0)
-		if err != nil {
-			return err
-		}
-		cpull <- msg
-		return nil
+	cpull = make(chan [][]byte, 2)
+	loop.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) {
+		cpull <- e.Message
 	})
+	loop.Step(-1)
 	select {
 	case <-cpull:
-	case <-time.After(10 * time.Millisecond):
-		t.Errorf("failed to receive message within timeout.")
-	}
-}
-
-func TestLoop_Enqueue(t *testing.T) {
-	var (
-		context    *Context
-		reQ, reP   *Socket
-		loop       *Loop
-		creQ, creP chan [][]byte
-		err        error
-	)
-	if context, err = NewContext(); err != nil {
-		t.Fatalf(err.Error())
-	}
-	defer context.Close()
-	//context.SetVerbose(true)
-	if reQ, err = context.NewSocket(zmq.REQ); err != nil {
-		t.Fatalf(err.Error())
-	}
-	if err = reQ.Bind("inproc://test"); err != nil {
-		t.Fatalf(err.Error())
-	}
-	if reP, err = context.NewSocket(zmq.REP); err != nil {
-		t.Fatalf(err.Error())
-	}
-	if err = reP.Connect("inproc://test"); err != nil {
-		t.Fatalf(err.Error())
-	}
-	loop, err = NewLoop(context)
-	//loop.SetVerbose(true)
-	creP = make(chan [][]byte, 2)
-	repHandler := loop.HandleFunc(reP, zmq.POLLIN, func(e *SocketEvent) error {
-		if msg, err := e.Socket.RecvMultipart(0); err != nil {
-			return err
-		} else {
-			creP <- msg
-		}
-		return nil
-	})
-	creQ = make(chan [][]byte, 2)
-	loop.HandleFunc(reQ, zmq.POLLIN, func(e *SocketEvent) error {
-		if msg, err := e.Socket.RecvMultipart(0); err != nil {
-			return err
-		} else {
-			creQ <- msg
-		}
-		return nil
-	})
-	loop.Enqueue(func() { reQ.Send([]byte("request"), 0) })
-	done := false
-	for !done {
-		select {
-		case <-creP:
-			loop.Enqueue(func() { reP.Send([]byte("response"), 0) })
-			err = loop.Unhandle(reP, zmq.POLLIN, repHandler)
-			if err != nil {
-				t.Fatalf(err.Error())
-			}
-		case <-creQ:
-			done = true
-		case <-time.After(10 * time.Millisecond):
-			t.Errorf("failed to receive message within timeout.")
-			done = true
-		}
+	default:
 	}
 }

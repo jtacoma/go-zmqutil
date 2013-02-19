@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	zmq "github.com/alecthomas/gozmq"
 )
@@ -16,8 +17,10 @@ import (
 // A SocketEvent represents a set of events on a socket.
 //
 type SocketEvent struct {
-	Socket *Socket        // socket on which events occurred
-	Events zmq.PollEvents // bitmask of events that occurred
+	Socket  *Socket        // socket on which events occurred
+	Events  zmq.PollEvents // bitmask of events that occurred
+	Fault   error          // handlers may set this
+	Message [][]byte       // when Events&POLLIN, the full message
 }
 
 // A SocketHandler acts on a *SocketEvent.
@@ -27,15 +30,15 @@ type SocketEvent struct {
 // passed to *Loop.Unhandle() to unsubscribe.
 //
 type SocketHandler interface {
-	HandleSocketEvent(*SocketEvent) error
+	HandleSocketEvent(*SocketEvent)
 }
 
 type socketHandlerFunc struct {
-	fun func(*SocketEvent) error
+	fun func(*SocketEvent)
 }
 
-func (h socketHandlerFunc) HandleSocketEvent(e *SocketEvent) error {
-	return h.fun(e)
+func (h socketHandlerFunc) HandleSocketEvent(e *SocketEvent) {
+	h.fun(e)
 }
 
 // A Loop is a ZeroMQ poll loop running in a goroutine.
@@ -45,17 +48,13 @@ func (h socketHandlerFunc) HandleSocketEvent(e *SocketEvent) error {
 // HandleFunc().
 //
 // Note: since a Socket is not thread-safe, a Socket being polled by a Loop
-// should not be operated on outside the scope of a handler or of a func passed
-// to Enqueue().
+// should not be operated on outside the scope of a handler.
 //
 type Loop struct {
-	notifySend *Socket        // to notify goroutine of pending commands
-	commands   chan func()    // pending commands
-	items      []loopItem     // sockets with their channels
-	fault      error          // error, if any, that caused loop to stop
-	closing    bool           // true if loop is either stopping or stopped
-	running    sync.WaitGroup // becomes zero when loop is finished
-	logger     *log.Logger    // changes when SetVerbose is called
+	items   []loopItem  // sockets with their channels
+	closing bool        // true if loop is either stopping or stopped
+	logger  *log.Logger // changes when SetVerbose is called
+	locker  *sync.Mutex // synchronize access to Loop state
 }
 
 type loopItem struct {
@@ -64,67 +63,35 @@ type loopItem struct {
 	handler SocketHandler  // func to call when events occur
 }
 
-// NewLoop starts a new poll loop in a goroutine.
+// NewLoop creates a new poll loop.
 //
-func NewLoop(context *Context) (*Loop, error) {
-	notifySend, notifyRecv, err := newPair(context)
-	if err != nil {
-		return nil, err
-	}
+func NewLoop(context *Context) *Loop {
 	p := Loop{
-		notifySend: notifySend,
-		commands:   make(chan func(), 64),
-		items: []loopItem{
-			loopItem{notifyRecv, zmq.POLLIN, nil},
-		},
+		locker: &sync.Mutex{},
 	}
-	p.running.Add(1)
-	go p.loop(notifyRecv)
-	return &p, nil
-}
-
-// Close causes the poll loop to exit, and blocks until this is done.
-//
-// This will not close polled sockets and the loop cannot be re-opened.  To
-// temporarily stop the loop, see *Loop.Enqueue().
-//
-// The returned error value does not necessarily correspond to a failure to close
-// the loop, but may be an error that caused the loop to close.
-//
-func (p *Loop) Close() error {
-	p.logf("loop: enqueuing func to mark as closing...")
-	p.Enqueue(func() { p.closing = true })
-	p.logf("loop: closing the notification-sending socket...")
-	p.notifySend.Close()
-	p.logf("loop: waiting for loop to stop runnning...")
-	p.running.Wait()
-	p.logf("loop: stopped.")
-	return p.fault
+	return &p
 }
 
 // Handle adds a socket event handler to p.
 //
 func (p *Loop) Handle(s *Socket, e zmq.PollEvents, h SocketHandler) {
-	done := make(chan int)
-	p.Enqueue(func() {
-		var exists bool
-		for _, existing := range p.items {
-			if existing.socket == s && existing.handler == h {
-				existing.events = existing.events | e
-				exists = true
-			}
+	p.locker.Lock()
+	defer p.locker.Unlock()
+	var exists bool
+	for _, existing := range p.items {
+		if existing.socket == s && existing.handler == h {
+			existing.events = existing.events | e
+			exists = true
 		}
-		if !exists {
-			p.items = append(p.items, loopItem{s, e, h})
-		}
-		done <- 1
-	})
-	<-done
+	}
+	if !exists {
+		p.items = append(p.items, loopItem{s, e, h})
+	}
 }
 
 // HandleFunc adds a socket event handler to p.
 //
-func (p *Loop) HandleFunc(s *Socket, e zmq.PollEvents, h func(*SocketEvent) error) SocketHandler {
+func (p *Loop) HandleFunc(s *Socket, e zmq.PollEvents, h func(*SocketEvent)) SocketHandler {
 	handler := &socketHandlerFunc{h}
 	p.Handle(s, e, handler)
 	return handler
@@ -135,27 +102,23 @@ func (p *Loop) HandleFunc(s *Socket, e zmq.PollEvents, h func(*SocketEvent) erro
 // If there are no remaining handlers for any event on this socket, the socket
 // itself will cease to be polled in p.
 //
-func (p *Loop) Unhandle(s *Socket, e zmq.PollEvents, h SocketHandler) (err error) {
-	done := make(chan int)
-	p.Enqueue(func() {
-		index := -1
-		for i, existing := range p.items {
-			if existing.socket == s && existing.handler == h {
-				existing.events = existing.events & ^e
-				if existing.events == 0 {
-					index = i
-				}
+func (p *Loop) Unhandle(s *Socket, e zmq.PollEvents, h SocketHandler) {
+	p.locker.Lock()
+	defer p.locker.Unlock()
+	index := -1
+	for i, existing := range p.items {
+		if existing.socket == s && existing.handler == h {
+			existing.events = existing.events & ^e
+			if existing.events == 0 {
+				index = i
 			}
 		}
-		if index == len(p.items)-1 {
-			p.items = p.items[0:index]
-		} else if index >= 0 {
-			p.items = append(p.items[0:index], p.items[index+1:len(p.items)]...)
-		}
-		done <- 1
-	})
-	<-done
-	return err
+	}
+	if index == len(p.items)-1 {
+		p.items = p.items[0:index]
+	} else if index >= 0 {
+		p.items = append(p.items[0:index], p.items[index+1:len(p.items)]...)
+	}
 }
 
 // SetVerbose enables (or disables) logging to os.Stdout.
@@ -174,19 +137,6 @@ func (p *Loop) SetVerbose(verbose bool) error {
 	return nil
 }
 
-// Enqueue enqueues a function to be called inside the poll loop.
-//
-// Useful for performing synchronous operations on the sockets being polled, for
-// example: to send a message on a socket that is also being polled for incoming
-// messages.
-//
-// Note: Enqueue submits f to a queue and returns before f is called.
-//
-func (p *Loop) Enqueue(f func()) {
-	p.notifySend.Send([]byte{0}, 0)
-	p.commands <- f
-}
-
 func (p *Loop) logf(s string, args ...interface{}) {
 	if p.logger != nil {
 		if s[len(s)-1] != '\n' {
@@ -196,90 +146,91 @@ func (p *Loop) logf(s string, args ...interface{}) {
 	}
 }
 
-func (p *Loop) loop(notifyRecv *Socket) {
-
-	defer func() {
-		p.logf("loop: closing notification-receiving socket...")
-		notifyRecv.Close()
-		p.logf("loop: declaring that loop is no longer running...")
-		p.running.Done()
-	}()
-
+// Run calls Step until an error is returned; then it closes p.
+//
+func (p *Loop) Run() error {
 	for !p.closing {
-
-		// TODO: refactor so that pollItems is re-constructed only when
-		// necessary.
-		pollItems := make(zmq.PollItems, 0, len(p.items))
-		for _, item := range p.items {
-			var exists bool
-			for _, existing := range pollItems {
-				if existing.Socket == item.socket.base {
-					existing.Events = existing.Events | item.events
-					exists = true
-				}
-			}
-			if !exists {
-				pollItems = append(pollItems, zmq.PollItem{
-					Socket: item.socket.base,
-					Events: item.events,
-				})
-			}
-		}
-
-		// Poll with an infinite timeout: this loop never spins idle.
-		_, err := zmq.Poll(pollItems, -1)
-
-		// Possible errors returned from Poll() are: ETERM, meaning a
-		// context was closed; EFAULT, meaning a mistake was made in
-		// setting up the PollItems list; and EINTR, meaning a signal
-		// was delivered before any events were available.  Here, we
-		// treat all errors the same:
-		if err != nil {
-			p.logf("loop: error while polling: %s", err.Error())
-			p.fault = err
+		if err := p.Step(-1); err != nil {
+			p.logf("loop: closing notification-receiving socket...")
 			p.closing = true
-			break
-		}
-
-		p.logf("loop: events detected.")
-
-		// Check all other sockets, sending any available messages to
-		// their associated channels:
-		for i := 1; i < len(pollItems); i++ {
-			pollItem := pollItems[i]
-			event := SocketEvent{
-				Events: pollItem.REvents,
-			}
-			for _, loopItem := range p.items {
-				if loopItem.socket.base == pollItem.Socket && (loopItem.events&pollItem.REvents) != 0 {
-					event.Socket = loopItem.socket
-					if err = loopItem.handler.HandleSocketEvent(&event); err != nil {
-						p.fault = err
-						p.closing = true
-						continue //?
-					}
-				}
-			}
-		}
-
-		// Check for incoming commands.  For each message available in
-		// notifyRecv, dequeue one command and execute it.
-		//
-		// Commands may modify p.items, which earlier code in this
-		// method assumes aligns with local slice pollItems.  Therefore,
-		// commands must be processed afterward.  (TODO: this clause is
-		// no longer true, roll command handling into the rest!)
-		if (pollItems[0].REvents & zmq.POLLIN) != 0 {
-			_, err := notifyRecv.RecvMultipart(0)
-			if err != nil {
-				p.fault = err
-				p.closing = true
-				break
-			}
-			cmd := <-p.commands
-			cmd()
+			return err
 		}
 	}
+	return nil
+}
+
+// Step polls for all handled events on whndled sockets for the
+// specified timeout and then calls handlers for any detected events.
+//
+// A negative timeout means forever; otherwise, timeout wll be truncated
+// to millisecond precision.
+//
+// Execution will halt and return first error encountered from polling
+// or handling.
+//
+func (p *Loop) Step(timeout time.Duration) (err error) {
+
+	// This PollItems construction may become inefficient for large
+	// numbers of handlers.
+	pollItems := make(zmq.PollItems, 0, len(p.items))
+	for _, item := range p.items {
+		var exists bool
+		for _, existing := range pollItems {
+			if existing.Socket == item.socket.base {
+				existing.Events = existing.Events | item.events
+				exists = true
+			}
+		}
+		if !exists {
+			pollItems = append(pollItems, zmq.PollItem{
+				Socket: item.socket.base,
+				Events: item.events,
+			})
+		}
+	}
+
+	// Truncate to the nearest
+	ms := int64(timeout / time.Millisecond)
+	if timeout < 0 {
+		ms = -1
+	}
+	_, err = zmq.Poll(pollItems, ms)
+
+	// Possible errors returned from Poll() are: ETERM, meaning a
+	// context was closed; EFAULT, meaning a mistake was made in
+	// setting up the PollItems list; and EINTR, meaning a signal
+	// was delivered before any events were available.  Here, we
+	// treat all errors the same:
+	if err != nil {
+		return err
+	}
+
+	p.logf("loop: events detected.")
+
+	// Check all other sockets, sending any available messages to
+	// their associated channels:
+	for _, pollItem := range pollItems {
+		event := SocketEvent{
+			Events: pollItem.REvents,
+		}
+		for _, loopItem := range p.items {
+			if loopItem.socket.base == pollItem.Socket && (loopItem.events&pollItem.REvents) != 0 {
+				event.Socket = loopItem.socket
+				if (pollItem.REvents&zmq.POLLIN) != 0 && event.Message == nil {
+					event.Message, err = event.Socket.RecvMultipart(0)
+					if err != nil {
+						return err
+					}
+				}
+				loopItem.handler.HandleSocketEvent(&event)
+				if event.Fault != nil {
+					return event.Fault
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // newPair returns a PUSH/PULL pair of inproc sockets.
