@@ -21,11 +21,7 @@ func closeTestCtx(t *testing.T, ctx *Context) {
 	select {
 	case <-done:
 	case <-time.After(1 * time.Second):
-		if t != nil {
-			t.Fatalf("context is taking too long to close.")
-		} else {
-			println("ERROR: context is taking too long to close.")
-		}
+		t.Fatalf("context is taking too long to close.")
 	}
 }
 

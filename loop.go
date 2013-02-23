@@ -66,10 +66,9 @@ type loopItem struct {
 // NewLoop creates a new poll loop.
 //
 func NewLoop(context *Context) *Loop {
-	p := Loop{
+	return &Loop{
 		locker: &sync.Mutex{},
 	}
-	return &p
 }
 
 // Handle adds a socket event handler to p.
