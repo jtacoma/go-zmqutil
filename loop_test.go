@@ -35,28 +35,22 @@ func ExampleLoop() {
 
 	loop := NewLoop(context)
 
-	cli, _ := context.NewSocket(zmq.REQ)
-	srv, _ := context.NewSocket(zmq.ROUTER)
-	srv.Bind("tcp://127.0.0.1:5557")
-	cli.Connect("tcp://127.0.0.1:5557")
-
-	loop.HandleFunc(srv, zmq.POLLIN, func(e *SocketEvent) {
-		e.Fault = srv.SendMultipart(e.Message, 0)
-	})
+	push, _ := context.NewSocket(zmq.PUSH)
+	pull, _ := context.NewSocket(zmq.PULL)
+	push.Bind("tcp://127.0.0.1:5557")
+	pull.Connect("tcp://127.0.0.1:5557")
 
 	recv := make(chan string, 2)
-	loop.HandleFunc(cli, zmq.POLLIN, func(e *SocketEvent) {
+
+	loop.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) {
 		recv <- string(e.Message[0])
 	})
 
-	cli.Send([]byte("Echo!"), 0)
+	push.Send([]byte("Echo!"), 0)
 
-	go loop.Run()
+	loop.Step(1 * time.Second)
 
-	// Receive response:
-	msg := <-recv
-
-	fmt.Println(msg)
+	fmt.Println(<-recv)
 
 	// Output:
 	// Echo!

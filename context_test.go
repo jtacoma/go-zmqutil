@@ -35,9 +35,11 @@ func TestContext_SetLinger(t *testing.T) {
 		if err != nil {
 			t.Fatalf(err.Error())
 		}
-		go sock.Send([]byte("message1"), 0)
+		go func() {
+			sock.Send([]byte("message1"), 0)
+			sock.Send([]byte("message2"), 0)
+		}()
 		time.Sleep(time.Millisecond)
-		go sock.Send([]byte("message2"), 0)
 		closing := time.Now()
 		err = ctx.Close()
 		if err != nil {
