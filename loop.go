@@ -188,12 +188,7 @@ func (p *Loop) Step(timeout time.Duration) (err error) {
 		}
 	}
 
-	// Truncate to the nearest
-	ms := int64(timeout / time.Millisecond)
-	if timeout < 0 {
-		ms = -1
-	}
-	_, err = zmq.Poll(pollItems, ms)
+	_, err = zmq.Poll(pollItems, timeout)
 
 	// Possible errors returned from Poll() are: ETERM, meaning a
 	// context was closed; EFAULT, meaning a mistake was made in
