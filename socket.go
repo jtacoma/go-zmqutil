@@ -20,6 +20,17 @@ func (s *Socket) Close() error {
 func (s *Socket) Bind(addr string) error    { return s.base.Bind(addr) }
 func (s *Socket) Connect(addr string) error { return s.base.Connect(addr) }
 
+func (s *Socket) MustBind(addr string) {
+	if err := s.Bind(addr); err != nil {
+		panic(err.Error())
+	}
+}
+func (s *Socket) MustConnect(addr string) {
+	if err := s.Connect(addr); err != nil {
+		panic(err.Error())
+	}
+}
+
 func (s *Socket) Recv(flags zmq.SendRecvOption) ([]byte, error) {
 	return s.base.Recv(flags)
 }
