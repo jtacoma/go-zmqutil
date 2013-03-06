@@ -1,6 +1,6 @@
 // +build zmq_3_x
 //
- 
+
 package gozmqutil
 
 import (
