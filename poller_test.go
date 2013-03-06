@@ -26,13 +26,13 @@ func closeTestCtx(t *testing.T, ctx *Context) {
 }
 
 func ExamplePoller() {
-	context, _ := NewContext()
+	context := NewContext()
 	defer context.Close()
 
 	poller := NewPoller(context)
 
-	push, _ := context.NewSocket(zmq.PUSH)
-	pull, _ := context.NewSocket(zmq.PULL)
+	push := context.NewSocket(zmq.PUSH)
+	pull := context.NewSocket(zmq.PULL)
 	push.Bind("tcp://127.0.0.1:5557")
 	pull.Connect("tcp://127.0.0.1:5557")
 
@@ -61,21 +61,15 @@ func TestPoller_Poll(t *testing.T) {
 		cpull   chan [][]byte
 		err     error
 	)
-	if context, err = NewContext(); err != nil {
-		t.Fatalf(err.Error())
-	}
+	context = NewContext()
 	defer closeTestCtx(t, context)
 	//context.SetVerbose(true)
 	context.SetLinger(100 * time.Millisecond)
-	if pull, err = context.NewSocket(zmq.PULL); err != nil {
-		t.Fatalf(err.Error())
-	}
+	pull = context.NewSocket(zmq.PULL)
 	if err = pull.Bind("tcp://127.0.0.1:5555"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	if push, err = context.NewSocket(zmq.PUSH); err != nil {
-		t.Fatalf(err.Error())
-	}
+	push = context.NewSocket(zmq.PUSH)
 	if err = push.Connect("tcp://127.0.0.1:5555"); err != nil {
 		t.Fatalf(err.Error())
 	}

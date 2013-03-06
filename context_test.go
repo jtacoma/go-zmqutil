@@ -19,18 +19,12 @@ func TestContext_SetLinger(t *testing.T) {
 		64 * time.Millisecond,
 	}
 	for _, linger := range cases {
-		ctx, err := NewContext()
+		ctx := NewContext()
+		err := ctx.SetLinger(linger)
 		if err != nil {
 			t.Fatalf(err.Error())
 		}
-		err = ctx.SetLinger(linger)
-		if err != nil {
-			t.Fatalf(err.Error())
-		}
-		sock, err := ctx.NewSocket(zmq.PUSH)
-		if err != nil {
-			t.Fatalf(err.Error())
-		}
+		sock := ctx.NewSocket(zmq.PUSH)
 		err = sock.Connect("tcp://127.0.0.1:5555")
 		if err != nil {
 			t.Fatalf(err.Error())

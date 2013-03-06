@@ -13,6 +13,11 @@ import (
 	zmq "github.com/alecthomas/gozmq"
 )
 
+// A Context corresponds to a ØMQ context.
+//
+// A Context is essentially a socket factory that can be closed only after all
+// the sockets it has created are also closed.
+//
 type Context struct {
 	base   zmq.Context
 	linger time.Duration
@@ -20,23 +25,25 @@ type Context struct {
 	logger *log.Logger
 }
 
-// NewContext returns a new context or nil.
-func NewContext() (*Context, error) {
+// NewContext returns a new context or panics.
+//
+func NewContext() *Context {
 	base, err := zmq.NewContext()
 	if err != nil {
-		return nil, err
+		panic(err.Error())
 	}
 	return &Context{
 		base:   base,
 		socks:  make(map[*Socket]bool),
 		linger: -1,
-	}, nil
+	}
 }
 
 // Close closes the context, blocking until the job is done.
 //
 // This will also propate the context's LINGER option to all sockets and close
 // each of them.
+//
 func (gctx *Context) Close() error {
 	if gctx == nil {
 		return ContextIsNil
@@ -82,6 +89,7 @@ func (gctx *Context) Close() error {
 
 // SetLinger adjusts the amount of time that Close() will wait for queued
 // messages to be sent.  The default is to wait forever.
+//
 func (gctx *Context) SetLinger(linger time.Duration) error {
 	if gctx == nil {
 		return ContextIsNil
@@ -91,6 +99,7 @@ func (gctx *Context) SetLinger(linger time.Duration) error {
 }
 
 // SetVerbose enables (or disables) logging to os.Stdout.
+//
 func (gctx *Context) SetVerbose(verbose bool) error {
 	if gctx == nil {
 		return ContextIsNil
@@ -110,11 +119,14 @@ func (gctx *Context) SetVerbose(verbose bool) error {
 
 // NewSocket creates a new socket and registers it to be closed when the context
 // is closed.
-func (gctx *Context) NewSocket(t zmq.SocketType) (*Socket, error) {
+//
+// NewSocket will panic if the specified socket type is not valid, if the
+// context is nil, or if there is not enough memory.
+//
+func (gctx *Context) NewSocket(t zmq.SocketType) *Socket {
 	base, err := gctx.base.NewSocket(t)
 	if err != nil {
-		gctx.logf("error while creating socket: %s", err.Error())
-		return nil, err
+		panic(err)
 	}
 	sock := &Socket{
 		base: base,
@@ -122,7 +134,7 @@ func (gctx *Context) NewSocket(t zmq.SocketType) (*Socket, error) {
 	}
 	gctx.socks[sock] = true
 	gctx.logf("created socket %p.", sock)
-	return sock, nil
+	return sock
 }
 
 func (gctx *Context) logf(s string, args ...interface{}) {

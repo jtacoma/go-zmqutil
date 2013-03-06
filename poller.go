@@ -229,15 +229,9 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 
 // newPair returns a PUSH/PULL pair of inproc sockets.
 func newPair(c *Context) (send *Socket, recv *Socket, err error) {
-	send, err = c.NewSocket(zmq.PUSH)
-	if err != nil {
-		return
-	}
+	send = c.NewSocket(zmq.PUSH)
 	send.SetLinger(0)
-	recv, err = c.NewSocket(zmq.PULL)
-	if err != nil {
-		return
-	}
+	recv = c.NewSocket(zmq.PULL)
 	send.SetLinger(0)
 	addr := newInprocAddress()
 	err = send.Bind(addr)
