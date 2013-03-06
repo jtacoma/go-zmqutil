@@ -11,30 +11,32 @@ All socket options are available through option-specific getter/setter methods.
 
 A reactor loop that lets event handlers be attached to sockets.
 
-    import (
-        "errors"
-        "time"
+	package main
 
-        zmq "github.com/alecthomas/gozmq"
-        "github.com/jtacoma/go-zmqutil"
-    )
+	import (
+		"errors"
+		"time"
 
-    func main() {
-        context := zmqutil.NewContext()
-        defer context.Close()
-        context.SetLinger(1 * time.Second)
-        socket, _ := context.NewSocket(zmq.SUB)
-        poller, _ := zmqutil.NewPoller(context)
-        poller.HandlFunc(socket, zmq.POLLIN, func (e *zmqutil.SocketEvent) error {
-            println(string(msg[0]))
-            if (string(msg[0]) == "STOP") {
-                e.Fault = errors.New("received 'STOP'")
-                println("Stopping...")
-            }
-        })
-        socket.Bind("tcp://localhost:5555")
-        poller.Run()
-    }
+		zmq "github.com/alecthomas/gozmq"
+		"github.com/jtacoma/go-zmqutil"
+	)
+
+	func main() {
+		context := zmqutil.NewContext()
+		defer context.Close()
+		context.SetLinger(1 * time.Second)
+		socket := context.NewSocket(zmq.SUB)
+		poller := zmqutil.NewPoller(context)
+		poller.HandleFunc(socket, zmq.POLLIN, func (e *zmqutil.SocketEvent) {
+			println(string(e.Message[0]))
+			if (string(e.Message[0]) == "STOP") {
+				e.Fault = errors.New("received 'STOP'")
+				println("Stopping...")
+			}
+		})
+		socket.Bind("tcp://localhost:5555")
+		poller.Run()
+	}
 
 ## Building
 
