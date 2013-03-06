@@ -171,24 +171,24 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 
 	// This PollItems construction may become inefficient for large
 	// numbers of handlers.
-	pollItems := make(zmq.PollItems, 0, len(p.items))
+	baseItems := make(zmq.PollItems, 0, len(p.items))
 	for _, item := range p.items {
 		var exists bool
-		for _, existing := range pollItems {
-			if existing.Socket == item.socket.base {
-				existing.Events = existing.Events | item.events
+		for _, base := range baseItems {
+			if base.Socket == item.socket.base {
+				base.Events = base.Events | item.events
 				exists = true
 			}
 		}
 		if !exists {
-			pollItems = append(pollItems, zmq.PollItem{
+			baseItems = append(baseItems, zmq.PollItem{
 				Socket: item.socket.base,
 				Events: item.events,
 			})
 		}
 	}
 
-	_, err = zmq.Poll(pollItems, timeout)
+	_, err = zmq.Poll(baseItems, timeout)
 
 	// Possible errors returned from Poll() are: ETERM, meaning a
 	// context was closed; EFAULT, meaning a mistake was made in
@@ -203,20 +203,20 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 
 	// Check all other sockets, sending any available messages to
 	// their associated channels:
-	for _, pollItem := range pollItems {
+	for _, base := range baseItems {
 		event := SocketEvent{
-			Events: pollItem.REvents,
+			Events: base.REvents,
 		}
-		for _, pollItem := range p.items {
-			if pollItem.socket.base == pollItem.Socket && (pollItem.events&pollItem.REvents) != 0 {
-				event.Socket = pollItem.socket
-				if (pollItem.REvents&zmq.POLLIN) != 0 && event.Message == nil {
+		for _, item := range p.items {
+			if item.socket.base == base.Socket && (item.events&base.REvents) != 0 {
+				event.Socket = item.socket
+				if (base.REvents&zmq.POLLIN) != 0 && event.Message == nil {
 					event.Message, err = event.Socket.RecvMultipart(0)
 					if err != nil {
 						return err
 					}
 				}
-				pollItem.handler.HandleSocketEvent(&event)
+				item.handler.HandleSocketEvent(&event)
 				if event.Fault != nil {
 					return event.Fault
 				}
