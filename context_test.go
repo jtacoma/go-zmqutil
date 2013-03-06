@@ -7,8 +7,6 @@ package zmqutil
 import (
 	"testing"
 	"time"
-
-	zmq "github.com/alecthomas/gozmq"
 )
 
 func TestContext_SetLinger(t *testing.T) {
@@ -24,7 +22,7 @@ func TestContext_SetLinger(t *testing.T) {
 		if err != nil {
 			t.Fatalf(err.Error())
 		}
-		sock := ctx.NewSocket(zmq.PUSH)
+		sock := ctx.NewSocket(PUSH)
 		err = sock.Connect("tcp://127.0.0.1:5555")
 		if err != nil {
 			t.Fatalf(err.Error())

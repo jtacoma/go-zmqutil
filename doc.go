@@ -20,7 +20,6 @@ A reactor loop that lets event handlers be attached to sockets.
 		"errors"
 		"time"
 
-		zmq "github.com/alecthomas/gozmq"
 		"github.com/jtacoma/go-zmqutil"
 	)
 
@@ -28,9 +27,9 @@ A reactor loop that lets event handlers be attached to sockets.
 		context := zmqutil.NewContext()
 		defer context.Close()
 		context.SetLinger(1 * time.Second)
-		socket := context.NewSocket(zmq.SUB)
+		socket := context.NewSocket(zmqutil.SUB)
 		poller := zmqutil.NewPoller(context)
-		poller.HandleFunc(socket, zmq.POLLIN, func (e *zmqutil.SocketEvent) {
+		poller.HandleFunc(socket, zmqutil.POLLIN, func (e *zmqutil.SocketEvent) {
 			println(string(e.Message[0]))
 			if (string(e.Message[0]) == "STOP") {
 				e.Fault = errors.New("received 'STOP'")

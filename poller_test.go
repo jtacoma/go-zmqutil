@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"testing"
 	"time"
-
-	zmq "github.com/alecthomas/gozmq"
 )
 
 func closeTestCtx(t *testing.T, ctx *Context) {
@@ -31,14 +29,14 @@ func ExamplePoller() {
 
 	poller := NewPoller(context)
 
-	push := context.NewSocket(zmq.PUSH)
-	pull := context.NewSocket(zmq.PULL)
+	push := context.NewSocket(PUSH)
+	pull := context.NewSocket(PULL)
 	push.Bind("tcp://127.0.0.1:5557")
 	pull.Connect("tcp://127.0.0.1:5557")
 
 	recv := make(chan string, 2)
 
-	poller.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) {
+	poller.HandleFunc(pull, POLLIN, func(e *SocketEvent) {
 		recv <- string(e.Message[0])
 	})
 
@@ -65,11 +63,11 @@ func TestPoller_Poll(t *testing.T) {
 	defer closeTestCtx(t, context)
 	//context.SetVerbose(true)
 	context.SetLinger(100 * time.Millisecond)
-	pull = context.NewSocket(zmq.PULL)
+	pull = context.NewSocket(PULL)
 	if err = pull.Bind("tcp://127.0.0.1:5555"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	push = context.NewSocket(zmq.PUSH)
+	push = context.NewSocket(PUSH)
 	if err = push.Connect("tcp://127.0.0.1:5555"); err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -80,7 +78,7 @@ func TestPoller_Poll(t *testing.T) {
 	//poller.SetVerbose(true)
 	push.Send([]byte("test"), 0)
 	cpull = make(chan [][]byte, 2)
-	poller.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) {
+	poller.HandleFunc(pull, POLLIN, func(e *SocketEvent) {
 		cpull <- e.Message
 	})
 	poller.Poll(-1)
