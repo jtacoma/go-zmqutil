@@ -1,7 +1,7 @@
 // +build zmq_2_1
 //
 
-package gozmqutil
+package zmqutil
 
 import (
 	"time"

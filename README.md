@@ -1,4 +1,4 @@
-# gozmqutil
+# zmqutil
 
 [ØMQ](http://www.zeromq.org) abstractions for [Go](http://golang.org).
 
@@ -19,7 +19,7 @@ Build tags are used to distinguish versions of ØMQ.  Version 2.1 is `zmq_2_1`, 
         "time"
     
         zmq "github.com/alecthomas/gozmq"
-        zmqutil "github.com/jtacoma/gozmqutil"
+        "github.com/jtacoma/go-zmqutil"
     )
     
     func main() {

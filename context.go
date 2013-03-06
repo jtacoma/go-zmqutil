@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package gozmqutil
+package zmqutil
 
 import (
 	"log"
@@ -127,6 +127,6 @@ func (gctx *Context) NewSocket(t zmq.SocketType) (*Socket, error) {
 
 func (gctx *Context) logf(s string, args ...interface{}) {
 	if gctx.logger != nil {
-		gctx.logger.Printf("[gozmqutil] "+s, args...)
+		gctx.logger.Printf("[zmqutil] "+s, args...)
 	}
 }

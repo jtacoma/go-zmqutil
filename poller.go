@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package gozmqutil
+package zmqutil
 
 import (
 	"log"
@@ -141,7 +141,7 @@ func (p *Poller) logf(s string, args ...interface{}) {
 		if s[len(s)-1] != '\n' {
 			s += "\n"
 		}
-		p.logger.Printf("[gozmqutil] "+s, args...)
+		p.logger.Printf("[zmqutil] "+s, args...)
 	}
 }
 
@@ -256,7 +256,7 @@ func newInprocAddress() string {
 	inprocNextMutex.Lock()
 	defer inprocNextMutex.Unlock()
 	inprocNext += 1
-	return "inproc://github.com/jtacoma/gozmqutil/" + strconv.Itoa(inprocNext-1)
+	return "inproc://github.com/jtacoma/zmqutil/" + strconv.Itoa(inprocNext-1)
 }
 
 var inprocNext = 1
