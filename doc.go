@@ -17,11 +17,11 @@ A reactor loop that lets event handlers be attached to sockets.
     import (
         "errors"
         "time"
-    
+
         zmq "github.com/alecthomas/gozmq"
         "github.com/jtacoma/go-zmqutil"
     )
-    
+
     func main() {
         context := zmqutil.NewContext()
         defer context.Close()
