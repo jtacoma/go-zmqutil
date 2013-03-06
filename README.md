@@ -27,8 +27,8 @@ Build tags are used to distinguish versions of ØMQ.  Version 2.1 is `zmq_2_1`, 
         defer context.Close()
         context.SetLinger(1 * time.Second)
         socket, _ := context.NewSocket(zmq.SUB)
-        loop, _ := zmqutil.NewLoop(context)
-        loop.HandlFunc(socket, zmq.POLLIN, func (e *zmqutil.SocketEvent) error {
+        poller, _ := zmqutil.NewPoller(context)
+        poller.HandlFunc(socket, zmq.POLLIN, func (e *zmqutil.SocketEvent) error {
             println(string(msg[0]))
             if (string(msg[0]) == "STOP") {
                 e.Fault = errors.New("received 'STOP'")
@@ -36,7 +36,7 @@ Build tags are used to distinguish versions of ØMQ.  Version 2.1 is `zmq_2_1`, 
             }
         })
         socket.Bind("tcp://localhost:5555")
-        loop.Run()
+        poller.Run()
     }
 
 ## Implemented Features
@@ -49,7 +49,7 @@ A context remembers its sockets and has its own `Linger` option.  When a context
 
 All options supported in [gozmq](https://github.com/alecthomas/gozmq) are available here through option-specific getter/setter methods.
 
-### Loop
+### Poller
 
 A reactor loop that lets event handlers be attached to sockets.
 

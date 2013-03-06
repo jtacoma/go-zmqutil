@@ -25,11 +25,11 @@ func closeTestCtx(t *testing.T, ctx *Context) {
 	}
 }
 
-func ExampleLoop() {
+func ExamplePoller() {
 	context, _ := NewContext()
 	defer context.Close()
 
-	loop := NewLoop(context)
+	poller := NewPoller(context)
 
 	push, _ := context.NewSocket(zmq.PUSH)
 	pull, _ := context.NewSocket(zmq.PULL)
@@ -38,13 +38,13 @@ func ExampleLoop() {
 
 	recv := make(chan string, 2)
 
-	loop.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) {
+	poller.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) {
 		recv <- string(e.Message[0])
 	})
 
 	push.Send([]byte("Echo!"), 0)
 
-	loop.Step(1 * time.Second)
+	poller.Poll(1 * time.Second)
 
 	fmt.Println(<-recv)
 
@@ -52,12 +52,12 @@ func ExampleLoop() {
 	// Echo!
 }
 
-func TestLoop_Step(t *testing.T) {
+func TestPoller_Poll(t *testing.T) {
 	var (
 		context *Context
 		pull    *Socket
 		push    *Socket
-		loop    *Loop
+		poller  *Poller
 		cpull   chan [][]byte
 		err     error
 	)
@@ -79,17 +79,17 @@ func TestLoop_Step(t *testing.T) {
 	if err = push.Connect("tcp://127.0.0.1:5555"); err != nil {
 		t.Fatalf(err.Error())
 	}
-	loop = NewLoop(context)
+	poller = NewPoller(context)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
-	//loop.SetVerbose(true)
+	//poller.SetVerbose(true)
 	push.Send([]byte("test"), 0)
 	cpull = make(chan [][]byte, 2)
-	loop.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) {
+	poller.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) {
 		cpull <- e.Message
 	})
-	loop.Step(-1)
+	poller.Poll(-1)
 	select {
 	case <-cpull:
 	default:
