@@ -9,7 +9,8 @@ socket then close them all.
 
 All socket options are available through option-specific getter/setter methods.
 
-A reactor loop that lets event handlers be attached to sockets.
+An additonal type, Poller, provides reactor loop that lets event handlers be
+attached to sockets.
 
 	package main
 
@@ -24,7 +25,7 @@ A reactor loop that lets event handlers be attached to sockets.
 	func main() {
 		context := zmqutil.NewContext()
 		defer context.Close()
-		context.SetLinger(1 * time.Second)
+		context.SetLinger(50 * time.Millisecond)
 		socket := context.NewSocket(zmq.SUB)
 		poller := zmqutil.NewPoller(context)
 		poller.HandleFunc(socket, zmq.POLLIN, func (e *zmqutil.Event) {
