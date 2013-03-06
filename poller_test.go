@@ -38,7 +38,7 @@ func ExamplePoller() {
 
 	recv := make(chan string, 2)
 
-	poller.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) {
+	poller.HandleFunc(pull, zmq.POLLIN, func(e *Event) {
 		recv <- string(e.Message[0])
 	})
 
@@ -80,7 +80,7 @@ func TestPoller_Poll(t *testing.T) {
 	//poller.SetVerbose(true)
 	push.Send([]byte("test"), 0)
 	cpull = make(chan [][]byte, 2)
-	poller.HandleFunc(pull, zmq.POLLIN, func(e *SocketEvent) {
+	poller.HandleFunc(pull, zmq.POLLIN, func(e *Event) {
 		cpull <- e.Message
 	})
 	poller.Poll(-1)

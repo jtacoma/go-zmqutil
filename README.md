@@ -27,7 +27,7 @@ A reactor loop that lets event handlers be attached to sockets.
 		context.SetLinger(1 * time.Second)
 		socket := context.NewSocket(zmq.SUB)
 		poller := zmqutil.NewPoller(context)
-		poller.HandleFunc(socket, zmq.POLLIN, func (e *zmqutil.SocketEvent) {
+		poller.HandleFunc(socket, zmq.POLLIN, func (e *zmqutil.Event) {
 			println(string(e.Message[0]))
 			if (string(e.Message[0]) == "STOP") {
 				e.Fault = errors.New("received 'STOP'")

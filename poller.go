@@ -14,30 +14,30 @@ import (
 	zmq "github.com/alecthomas/gozmq"
 )
 
-// A SocketEvent represents a set of events on a socket.
+// A Event represents a set of events on a socket.
 //
-type SocketEvent struct {
+type Event struct {
 	Socket  *Socket        // socket on which events occurred
 	Events  zmq.PollEvents // bitmask of events that occurred
 	Fault   error          // handlers may set this
 	Message [][]byte       // when Events&POLLIN, the full message
 }
 
-// A SocketHandler acts on a *SocketEvent.
+// A SocketHandler acts on a *Event.
 //
 // When a SocketHandler returns an error to a poller, the poller will exit.  An
 // instance of this interface is returned from *Poller.HandleFunc(), and can be
 // passed to *Poller.Unhandle() to unsubscribe.
 //
 type SocketHandler interface {
-	HandleSocketEvent(*SocketEvent)
+	HandleEvent(*Event)
 }
 
 type socketHandlerFunc struct {
-	fun func(*SocketEvent)
+	fun func(*Event)
 }
 
-func (h socketHandlerFunc) HandleSocketEvent(e *SocketEvent) {
+func (h socketHandlerFunc) HandleEvent(e *Event) {
 	h.fun(e)
 }
 
@@ -90,7 +90,7 @@ func (p *Poller) Handle(s *Socket, e zmq.PollEvents, h SocketHandler) {
 
 // HandleFunc adds a socket event handler to p.
 //
-func (p *Poller) HandleFunc(s *Socket, e zmq.PollEvents, h func(*SocketEvent)) SocketHandler {
+func (p *Poller) HandleFunc(s *Socket, e zmq.PollEvents, h func(*Event)) SocketHandler {
 	handler := &socketHandlerFunc{h}
 	p.Handle(s, e, handler)
 	return handler
@@ -161,8 +161,8 @@ func (p *Poller) Run() error {
 // Poll polls, with the specified timeout, all sockets for all events that have
 // been registered with event handlers.
 //
-// A negative timeout means forever; otherwise, timeout wll be truncated
-// to millisecond precision.
+// A negative timeout means forever; otherwise, timeout wll be truncated to
+// millisecond precision.
 //
 // Execution will halt and return first error encountered from polling
 // or handling.
@@ -204,7 +204,7 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 	// Check all other sockets, sending any available messages to
 	// their associated channels:
 	for _, base := range baseItems {
-		event := SocketEvent{
+		event := Event{
 			Events: base.REvents,
 		}
 		for _, item := range p.items {
@@ -216,7 +216,7 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 						return err
 					}
 				}
-				item.handler.HandleSocketEvent(&event)
+				item.handler.HandleEvent(&event)
 				if event.Fault != nil {
 					return event.Fault
 				}
