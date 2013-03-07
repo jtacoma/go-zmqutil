@@ -8,6 +8,14 @@ import (
 	"github.com/jtacoma/go-zmqutil"
 )
 
+func echo(e *zmqutil.Event, m [][]byte) {
+	println("received:", string(m[0]))
+	if string(m[0]) == "STOP" {
+		e.Fault = errors.New("received 'STOP'")
+		println("stopping...")
+	}
+}
+
 func main() {
 	context := zmqutil.NewContext()
 	defer context.Close()
@@ -15,13 +23,7 @@ func main() {
 	context.SetVerbose(true)
 	socket := context.NewSocket(zmq.PULL)
 	poller := zmqutil.NewPoller(context)
-	poller.HandleFunc(socket, zmq.POLLIN, func(e *zmqutil.Event) {
-		println("received:", string(e.Message[0]))
-		if string(e.Message[0]) == "STOP" {
-			e.Fault = errors.New("received 'STOP'")
-			println("stopping...")
-		}
-	})
+	poller.Handle(socket, zmq.POLLIN, zmqutil.NewMessageHandler(echo))
 	socket.MustBind("tcp://*:5555")
 	poller.Run()
 }

@@ -17,10 +17,9 @@ import (
 // A Event represents a set of events on a socket.
 //
 type Event struct {
-	Socket  *Socket        // socket on which events occurred
-	Events  zmq.PollEvents // bitmask of events that occurred
-	Fault   error          // handlers may set this
-	Message [][]byte       // when Events&POLLIN, the full message
+	Socket *Socket        // socket on which events occurred
+	Events zmq.PollEvents // bitmask of events that occurred
+	Fault  error          // handlers may set this
 }
 
 // A SocketHandler acts on a *Event.
@@ -31,6 +30,20 @@ type Event struct {
 //
 type SocketHandler interface {
 	HandleEvent(*Event)
+}
+
+func NewMessageHandler(do func(*Event, [][]byte)) SocketHandler {
+	return socketHandlerFunc{
+		fun: func(e *Event) {
+			for {
+				m, err := e.Socket.RecvMultipart(zmq.DONTWAIT)
+				if err != nil {
+					break
+				}
+				do(e, m)
+			}
+		},
+	}
 }
 
 type socketHandlerFunc struct {
@@ -210,12 +223,6 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 		for _, item := range p.items {
 			if item.socket.base == base.Socket && (item.events&base.REvents) != 0 {
 				event.Socket = item.socket
-				if (base.REvents&zmq.POLLIN) != 0 && event.Message == nil {
-					event.Message, err = event.Socket.RecvMultipart(0)
-					if err != nil {
-						return err
-					}
-				}
 				item.handler.HandleEvent(&event)
 				if event.Fault != nil {
 					return event.Fault
