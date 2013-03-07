@@ -22,17 +22,17 @@ type Event struct {
 	Fault  error          // handlers may set this
 }
 
-// A SocketHandler acts on a *Event.
+// A Handler acts on a *Event.
 //
-// When a SocketHandler returns an error to a poller, the poller will exit.  An
+// When a Handler returns an error to a poller, the poller will exit.  An
 // instance of this interface is returned from *Poller.HandleFunc(), and can be
 // passed to *Poller.Unhandle() to unsubscribe.
 //
-type SocketHandler interface {
+type Handler interface {
 	HandleEvent(*Event)
 }
 
-func NewMessageHandler(do func(*Event, [][]byte)) SocketHandler {
+func NewMessageHandler(do func(*Event, [][]byte)) Handler {
 	return socketHandlerFunc{
 		fun: func(e *Event) {
 			for {
@@ -73,7 +73,7 @@ type Poller struct {
 type pollItem struct {
 	socket  *Socket        // socket to poll
 	events  zmq.PollEvents // events to poll for
-	handler SocketHandler  // func to call when events occur
+	handler Handler        // func to call when events occur
 }
 
 // NewPoller creates a new poller.
@@ -86,7 +86,7 @@ func NewPoller(context *Context) *Poller {
 
 // Handle adds a socket event handler to p.
 //
-func (p *Poller) Handle(s *Socket, e zmq.PollEvents, h SocketHandler) {
+func (p *Poller) Handle(s *Socket, e zmq.PollEvents, h Handler) {
 	p.locker.Lock()
 	defer p.locker.Unlock()
 	var exists bool
@@ -103,7 +103,7 @@ func (p *Poller) Handle(s *Socket, e zmq.PollEvents, h SocketHandler) {
 
 // HandleFunc adds a socket event handler to p.
 //
-func (p *Poller) HandleFunc(s *Socket, e zmq.PollEvents, h func(*Event)) SocketHandler {
+func (p *Poller) HandleFunc(s *Socket, e zmq.PollEvents, h func(*Event)) Handler {
 	handler := &socketHandlerFunc{h}
 	p.Handle(s, e, handler)
 	return handler
@@ -114,7 +114,7 @@ func (p *Poller) HandleFunc(s *Socket, e zmq.PollEvents, h func(*Event)) SocketH
 // If there are no remaining handlers for any event on this socket, the socket
 // itself will cease to be polled in p.
 //
-func (p *Poller) Unhandle(s *Socket, e zmq.PollEvents, h SocketHandler) {
+func (p *Poller) Unhandle(s *Socket, e zmq.PollEvents, h Handler) {
 	p.locker.Lock()
 	defer p.locker.Unlock()
 	index := -1
