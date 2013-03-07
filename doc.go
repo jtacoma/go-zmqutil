@@ -12,7 +12,7 @@ socket then close them all.
 
 All socket options are available through option-specific getter/setter methods.
 
-An additonal type, Poller, provides reactor loop that lets event handlers be
+An additonal type, Poller, provides a reactor loop that lets event handlers be
 attached to sockets.
 
 	package main
