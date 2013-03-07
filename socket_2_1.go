@@ -90,7 +90,7 @@ func (s *Socket) RecoveryIvlMsec() (time.Duration, error) {
 //
 // See: http://api.zeromq.org/2-1:zmq-getsockopt#toc12
 //
-func (s *Socket) McastPoller() (int64, error) {
+func (s *Socket) McastLoop() (int64, error) {
 	return s.base.GetSockOptInt64(zmq.MCAST_LOOP)
 }
 
@@ -231,7 +231,7 @@ func (s *Socket) SetRecoveryIvlMsec(value time.Duration) error {
 //
 // See: http://api.zeromq.org/2-1:zmq-setsockopt#toc12
 //
-func (s *Socket) SetMcastPoller(value int64) error {
+func (s *Socket) SetMcastLoop(value int64) error {
 	return s.base.SetSockOptInt64(zmq.MCAST_LOOP, value)
 }
 
