@@ -19,7 +19,7 @@ import (
 type Event struct {
 	Socket *Socket        // socket on which events occurred
 	Events zmq.PollEvents // bitmask of events that occurred
-	Fault  error          // handlers may set this
+	Fault  error          // handlers may set this to halt the poller
 }
 
 // A Handler acts on a *Event.
@@ -32,6 +32,8 @@ type Handler interface {
 	HandleEvent(*Event)
 }
 
+// NewMessageHandler creates a Handler that responds to each available message.
+//
 func NewMessageHandler(do func(*Event, [][]byte)) Handler {
 	return socketHandlerFunc{
 		fun: func(e *Event) {
