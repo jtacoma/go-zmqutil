@@ -33,24 +33,24 @@ func ExamplePoller() {
 
 	push := context.NewSocket(zmq.PUSH)
 	pull := context.NewSocket(zmq.PULL)
-	push.Bind("tcp://127.0.0.1:5557")
-	pull.Connect("tcp://127.0.0.1:5557")
+	push.MustBind("tcp://127.0.0.1:5555")
+	pull.MustConnect("tcp://127.0.0.1:5555")
 
-	recv := make(chan string, 2)
+	recv := make(chan string, 1)
 
 	handler := NewMessageHandler(func(e *Event, m [][]byte) {
 		recv <- string(m[0])
 	})
 	poller.Handle(pull, zmq.POLLIN, handler)
 
-	push.Send([]byte("Echo!"), 0)
+	push.Send([]byte("Hello!"), 0)
 
-	poller.Poll(1 * time.Second)
+	poller.Poll(-1)
 
 	fmt.Println(<-recv)
 
 	// Output:
-	// Echo!
+	// Hello!
 }
 
 func TestPoller_Poll(t *testing.T) {
