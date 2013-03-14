@@ -231,32 +231,3 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 
 	return nil
 }
-
-// newPair returns a PUSH/PULL pair of inproc sockets.
-func newPair(c *Context) (send *Socket, recv *Socket, err error) {
-	send = c.NewSocket(zmq.PUSH)
-	send.SetLinger(0)
-	recv = c.NewSocket(zmq.PULL)
-	send.SetLinger(0)
-	addr := newInprocAddress()
-	err = send.Bind(addr)
-	if err != nil {
-		return
-	}
-	err = recv.Connect(addr)
-	if err != nil {
-		return
-	}
-	return
-}
-
-// newInprocAddress returns a unique incproc address.
-func newInprocAddress() string {
-	inprocNextMutex.Lock()
-	defer inprocNextMutex.Unlock()
-	inprocNext += 1
-	return "inproc://github.com/jtacoma/zmqutil/" + strconv.Itoa(inprocNext-1)
-}
-
-var inprocNext = 1
-var inprocNextMutex sync.Mutex
