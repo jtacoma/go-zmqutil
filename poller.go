@@ -66,10 +66,9 @@ func (h socketHandlerFunc) HandleEvent(e *Event) {
 // should not be operated on outside the scope of a handler.
 //
 type Poller struct {
-	items   []pollItem  // sockets with their channels
-	closing bool        // true if poller is either stopping or stopped
-	logger  *log.Logger // changes when SetVerbose is called
-	locker  *sync.Mutex // synchronize access to Poller state
+	items  []pollItem  // sockets with their channels
+	logger *log.Logger // changes when SetVerbose is called
+	locker *sync.Mutex // synchronize access to Poller state
 }
 
 type pollItem struct {
@@ -160,17 +159,14 @@ func (p *Poller) logf(s string, args ...interface{}) {
 	}
 }
 
-// Run calls Poll until an error is returned; then it closes p.
+// Run calls Poll until an error is returned, then returns that error.
 //
 func (p *Poller) Run() error {
-	for !p.closing {
+	for {
 		if err := p.Poll(-1); err != nil {
-			p.logf("poller: closing notification-receiving socket...")
-			p.closing = true
 			return err
 		}
 	}
-	return nil
 }
 
 // Poll polls, with the specified timeout, all sockets for all events that have
