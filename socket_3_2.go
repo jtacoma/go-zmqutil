@@ -25,8 +25,8 @@ func (s *Socket) Type() (uint64, error) {
 //
 // See: http://api.zeromq.org/3-2:zmq-getsockopt#toc4
 //
-func (s *Socket) Rcvmore() (int, error) {
-	return s.base.GetSockOptInt(zmq.RCVMORE)
+func (s *Socket) Rcvmore() (uint64, error) {
+	return s.base.GetSockOptUInt64(zmq.RCVMORE)
 }
 
 // ZMQ_SNDHWM: Retrieves high water mark for outbound messages.
