@@ -19,7 +19,7 @@ import (
 // the sockets it has created are also closed.
 //
 type Context struct {
-	base   zmq.Context
+	base   *zmq.Context
 	linger time.Duration
 	socks  map[*Socket]bool
 	logger *log.Logger

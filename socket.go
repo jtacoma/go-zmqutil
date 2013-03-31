@@ -9,7 +9,7 @@ import (
 )
 
 type Socket struct {
-	base zmq.Socket
+	base *zmq.Socket
 	ctx  *Context
 }
 

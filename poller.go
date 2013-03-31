@@ -7,7 +7,6 @@ package zmqutil
 import (
 	"log"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -167,6 +166,7 @@ func (p *Poller) Run() error {
 			return err
 		}
 	}
+	return nil
 }
 
 // Poll polls, with the specified timeout, all sockets for all events that have
