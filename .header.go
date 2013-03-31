@@ -15,26 +15,3 @@
 // You should have received a copy of the GNU Affero General Public
 // License along with ZeroMQ Utilities.  If not, see
 // <http://www.gnu.org/licenses/>.
-
-package zmqutil
-
-type _err int
-
-const (
-	_                 = iota
-	ContextIsNil _err = _err(iota)
-	SocketIsNil
-	NotImplemented
-)
-
-func (e _err) Error() string {
-	switch e {
-	case ContextIsNil:
-		return "zmqutil: nil Context"
-	case SocketIsNil:
-		return "zmqutil: nil Socket"
-	case NotImplemented:
-		return "zmqutil: this function is not yet implemented."
-	}
-	return "unknown error"
-}
