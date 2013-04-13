@@ -58,76 +58,76 @@ func NewContext() *Context {
 // This will also propate the context's LINGER option to all sockets and close
 // each of them.
 //
-func (gctx *Context) Close() error {
-	if gctx == nil {
+func (c *Context) Close() error {
+	if c == nil {
 		return ContextIsNil
 	}
 	var (
 		err error
 	)
-	gctx.logf("closing context: adjusting linger on sockets...")
-	for sock := range gctx.socks {
+	c.logf("closing context: adjusting linger on sockets...")
+	for sock := range c.socks {
 		current, _ := sock.Linger()
-		if current >= 0 && current < gctx.linger {
+		if current >= 0 && current < c.linger {
 			continue
 		}
-		if sock_err := sock.SetLinger(gctx.linger); sock_err != nil {
-			gctx.logf("closing context: error while setting linger on socket %p: %s", sock, sock_err.Error())
+		if sock_err := sock.SetLinger(c.linger); sock_err != nil {
+			c.logf("closing context: error while setting linger on socket %p: %s", sock, sock_err.Error())
 			if err == nil {
 				err = sock_err
 			}
 		}
 	}
 	var wg sync.WaitGroup
-	for sock := range gctx.socks {
+	for sock := range c.socks {
 		wg.Add(1)
 		go func(s *Socket) {
 			if sock_err := s.Close(); sock_err != nil && sock_err != zmq.ENOTSOCK {
-				gctx.logf("closing context: error while closing socket %p: %s", s, sock_err.Error())
+				c.logf("closing context: error while closing socket %p: %s", s, sock_err.Error())
 				if err == nil {
 					err = sock_err
 				}
 			} else {
-				gctx.logf("closing context: closed socket %p.", s)
+				c.logf("closing context: closed socket %p.", s)
 			}
 			wg.Done()
 		}(sock)
 	}
-	gctx.logf("closing context: waiting for sockets to close...")
+	c.logf("closing context: waiting for sockets to close...")
 	wg.Wait()
-	gctx.logf("closing context: sockets closed, closing context...")
-	gctx.base.Close()
-	gctx.logf("closing context: closed context.")
+	c.logf("closing context: sockets closed, closing context...")
+	c.base.Close()
+	c.logf("closing context: closed context.")
 	return err
 }
 
 // SetLinger adjusts the amount of time that Close() will wait for queued
 // messages to be sent.  The default is to wait forever.
 //
-func (gctx *Context) SetLinger(linger time.Duration) error {
-	if gctx == nil {
+func (c *Context) SetLinger(linger time.Duration) error {
+	if c == nil {
 		return ContextIsNil
 	}
-	gctx.linger = linger
+	c.linger = linger
 	return nil
 }
 
 // SetVerbose enables (or disables) logging to os.Stdout.
 //
-func (gctx *Context) SetVerbose(verbose bool) error {
-	if gctx == nil {
+func (c *Context) SetVerbose(verbose bool) error {
+	if c == nil {
 		return ContextIsNil
 	}
-	if verbose == (gctx.logger != nil) {
+	if verbose == (c.logger != nil) {
 		return nil
 	}
-	gctx.logf("verbose = %t", verbose)
-	if verbose && gctx.logger == nil {
-		gctx.logger = log.New(os.Stdout, "", log.Lmicroseconds)
+	c.logf("verbose = %t", verbose)
+	if verbose && c.logger == nil {
+		c.logger = log.New(os.Stdout, "", log.Lmicroseconds)
 	} else if !verbose {
-		gctx.logger = nil
+		c.logger = nil
 	}
-	gctx.logf("verbose = %t", gctx.logger != nil)
+	c.logf("verbose = %t", c.logger != nil)
 	return nil
 }
 
@@ -137,22 +137,19 @@ func (gctx *Context) SetVerbose(verbose bool) error {
 // NewSocket will panic if the specified socket type is not valid, if the
 // context is nil, or if there is not enough memory.
 //
-func (gctx *Context) NewSocket(t zmq.SocketType) *Socket {
-	base, err := gctx.base.NewSocket(t)
+func (c *Context) NewSocket(t zmq.SocketType) *Socket {
+	base, err := c.base.NewSocket(t)
 	if err != nil {
 		panic(err)
 	}
-	sock := &Socket{
-		base: base,
-		ctx:  gctx,
-	}
-	gctx.socks[sock] = true
-	gctx.logf("created socket %p.", sock)
+	sock := &Socket{base, base}
+	c.socks[sock] = true
+	c.logf("created socket %p.", sock)
 	return sock
 }
 
-func (gctx *Context) logf(s string, args ...interface{}) {
-	if gctx.logger != nil {
-		gctx.logger.Printf("[zmqutil] "+s, args...)
+func (c *Context) logf(s string, args ...interface{}) {
+	if c.logger != nil {
+		c.logger.Printf("[zmqutil] "+s, args...)
 	}
 }

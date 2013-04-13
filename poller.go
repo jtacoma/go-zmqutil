@@ -200,14 +200,14 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 	for _, item := range p.items {
 		var exists bool
 		for _, base := range baseItems {
-			if base.Socket == item.socket.base {
+			if base.Socket == item.socket.s {
 				base.Events = base.Events | item.events
 				exists = true
 			}
 		}
 		if !exists {
 			baseItems = append(baseItems, zmq.PollItem{
-				Socket: item.socket.base,
+				Socket: item.socket.s,
 				Events: item.events,
 			})
 		}
@@ -233,7 +233,7 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 			Events: base.REvents,
 		}
 		for _, item := range p.items {
-			if item.socket.base == base.Socket && (item.events&base.REvents) != 0 {
+			if item.socket.s == base.Socket && (item.events&base.REvents) != 0 {
 				event.Socket = item.socket
 				item.handler.HandleEvent(&event)
 				if event.Fault != nil {
