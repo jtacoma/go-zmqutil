@@ -21,7 +21,6 @@ package zmqutil
 import (
 	"log"
 	"os"
-	"sync"
 	"time"
 
 	zmq "github.com/alecthomas/gozmq"
@@ -55,8 +54,8 @@ func NewContext() *Context {
 
 // Close closes the context, blocking until the job is done.
 //
-// This will also propate the context's LINGER option to all sockets and close
-// each of them.
+// This also propagates the context's LINGER option to all sockets that would
+// linger longer and then closes each of them.
 //
 func (c *Context) Close() error {
 	var (
@@ -68,31 +67,37 @@ func (c *Context) Close() error {
 		if current >= 0 && current < c.linger {
 			continue
 		}
-		if sock_err := sock.SetLinger(c.linger); sock_err != nil {
+		sock_err := sock.SetLinger(c.linger)
+		if sock_err == zmq.ETERM {
+			// "The ZeroMQ context associated with the specified socket was
+			// terminated."  The context has already been closed.
+			return nil
+		} else if sock_err == zmq.ENOTSOCK {
+			// ENOTSOCK is the error returned when the socket has already been
+			// closed.  Good!
+			continue
+		} else if sock_err != nil {
 			c.logf("closing context: error while setting linger on socket %p: %s", sock, sock_err.Error())
 			if err == nil {
 				err = sock_err
 			}
 		}
 	}
-	var wg sync.WaitGroup
+	// Close each socket in a separate goroutine, effectively starting the
+	// countdown of each socket's LINGER interval:
 	for sock := range c.socks {
-		wg.Add(1)
 		go func(s *Socket) {
-			if sock_err := s.Close(); sock_err != nil && sock_err != zmq.ENOTSOCK {
-				c.logf("closing context: error while closing socket %p: %s", s, sock_err.Error())
-				if err == nil {
-					err = sock_err
-				}
-			} else {
-				c.logf("closing context: closed socket %p.", s)
-			}
-			wg.Done()
+			// ZeroMQ documentation says ENOTSOCK is the only error returned
+			// when closing a socket.  This is also the error returned when
+			// the socket has already been closed.  Therefore, we ignore
+			// errors from s.Close().
+			_ = s.Close()
+			c.logf("closing context: closed socket %p.", s)
 		}(sock)
 	}
-	c.logf("closing context: waiting for sockets to close...")
-	wg.Wait()
-	c.logf("closing context: sockets closed, closing context...")
+	// As always, ZeroMQ will not return from closing a context until all
+	// sockets have been closed:
+	c.logf("closing context: waiting...")
 	c.base.Close()
 	c.logf("closing context: closed context.")
 	return err

@@ -25,20 +25,35 @@ import (
 	zmq "github.com/alecthomas/gozmq"
 )
 
+type lingerCase struct {
+	context time.Duration
+	socket  time.Duration
+}
+
 func TestContext_SetLinger(t *testing.T) {
-	var cases = []time.Duration{
-		1 * time.Millisecond,
-		4 * time.Millisecond,
-		16 * time.Millisecond,
-		64 * time.Millisecond,
+	var cases = []lingerCase{
+		{1 * time.Millisecond, 1 * time.Second},
+		{4 * time.Millisecond, 1 * time.Second},
+		{16 * time.Millisecond, 1 * time.Second},
+		{64 * time.Millisecond, 1 * time.Second},
+		{1 * time.Second, 0},
+		{1 * time.Second, 64 * time.Millisecond},
+		{-1, 0},
+		{0, -1},
 	}
-	for _, linger := range cases {
+	for _, test := range cases {
+		var linger = test.context
+		if linger == -1 || linger > test.socket {
+			linger = test.socket
+		}
 		ctx := NewContext()
-		err := ctx.SetLinger(linger)
+		defer ctx.Close()
+		err := ctx.SetLinger(test.context)
 		if err != nil {
 			t.Fatalf(err.Error())
 		}
 		sock := ctx.NewSocket(zmq.PUSH)
+		sock.SetLinger(test.socket)
 		err = sock.Connect("tcp://127.0.0.1:5555")
 		if err != nil {
 			t.Fatalf(err.Error())
@@ -59,5 +74,29 @@ func TestContext_SetLinger(t *testing.T) {
 		} else if linger*2+time.Millisecond < closed {
 			t.Fatalf("closed in %s, expected close to %s", closed, linger)
 		}
+	}
+}
+
+func TestContext_Close(t *testing.T) {
+	ctx := NewContext()
+	defer ctx.Close()
+	err := ctx.SetLinger(0)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	sock := ctx.NewSocket(zmq.PUSH)
+	err = sock.Connect("tcp://127.0.0.1:5555")
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	sock.Close()
+	time.Sleep(time.Millisecond)
+	err = ctx.Close()
+	if err != nil {
+		t.Fatalf("closing a context with an already-closed socket: %s", err)
+	}
+	err = ctx.Close()
+	if err != nil {
+		t.Fatalf("when closing an already-closed context: %s", err)
 	}
 }
