@@ -59,9 +59,6 @@ func NewContext() *Context {
 // each of them.
 //
 func (c *Context) Close() error {
-	if c == nil {
-		return ContextIsNil
-	}
 	var (
 		err error
 	)
@@ -105,9 +102,6 @@ func (c *Context) Close() error {
 // messages to be sent.  The default is to wait forever.
 //
 func (c *Context) SetLinger(linger time.Duration) error {
-	if c == nil {
-		return ContextIsNil
-	}
 	c.linger = linger
 	return nil
 }
@@ -124,9 +118,6 @@ func (c *Context) SetLogger(logger *log.Logger) {
 // this will have no effect.
 //
 func (c *Context) SetVerbose(verbose bool) error {
-	if c == nil {
-		return ContextIsNil
-	}
 	if verbose == (c.logger != nil) {
 		return nil
 	}
