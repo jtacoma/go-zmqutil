@@ -20,8 +20,8 @@ package zmqutil
 
 import (
 	"log"
-	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	zmq "github.com/alecthomas/gozmq"
@@ -35,40 +35,6 @@ type Event struct {
 	Fault  error          // handlers may set this to halt the poller
 }
 
-// A Handler acts on a *Event.
-//
-// When a Handler returns an error to a poller, the poller will exit.  An
-// instance of this interface is returned from *Poller.HandleFunc(), and can be
-// passed to *Poller.Unhandle() to unsubscribe.
-//
-type Handler interface {
-	HandleEvent(*Event)
-}
-
-// NewMessageHandler creates a Handler that responds to each available message.
-//
-func NewMessageHandler(do func(*Event, [][]byte)) Handler {
-	return socketHandlerFunc{
-		fun: func(e *Event) {
-			for {
-				m, err := e.Socket.RecvMultipart(zmq.DONTWAIT)
-				if err != nil {
-					break
-				}
-				do(e, m)
-			}
-		},
-	}
-}
-
-type socketHandlerFunc struct {
-	fun func(*Event)
-}
-
-func (h socketHandlerFunc) HandleEvent(e *Event) {
-	h.fun(e)
-}
-
 // A Poller is a ZeroMQ poller running in a goroutine.
 //
 // The poller will respond to events on sockets by calling handlers that have
@@ -79,88 +45,110 @@ func (h socketHandlerFunc) HandleEvent(e *Event) {
 // should not be operated on outside the scope of a handler.
 //
 type Poller struct {
-	items  []pollItem  // sockets with their channels
-	logger *log.Logger // changes when SetVerbose is called
-	locker *sync.Mutex // synchronize access to Poller state
+	items  map[*zmq.Socket]*pollItem // sockets with their channels
+	locker *sync.Mutex               // synchronize access to Poller state
+	logger *log.Logger
 }
 
 type pollItem struct {
-	socket  *Socket        // socket to poll
-	events  zmq.PollEvents // events to poll for
-	handler Handler        // func to call when events occur
+	socket    *Socket        // socket to poll
+	events    zmq.PollEvents // events to poll for
+	handleErr func(error)    // func to call when an error occurs
+	handleIn  func([][]byte) // func to call when messages arrive
+	handleOut func()         // func to call when messages can be sent
 }
 
 // NewPoller creates a new poller.
 //
 func NewPoller(context *Context) *Poller {
 	return &Poller{
+		items:  make(map[*zmq.Socket]*pollItem),
 		locker: &sync.Mutex{},
 	}
 }
 
-// Handle adds a socket event handler to p.
+// HandleErr sets a function to be called when an error occurs on s.
 //
-func (p *Poller) Handle(s *Socket, e zmq.PollEvents, h Handler) {
+func (p *Poller) HandleErr(s *Socket, h func()) {
 	p.locker.Lock()
 	defer p.locker.Unlock()
-	var exists bool
-	for _, existing := range p.items {
-		if existing.socket == s && existing.handler == h {
-			existing.events = existing.events | e
-			exists = true
-		}
+	item, ok := p.items[s.s]
+	if !ok {
+		item = &pollItem{socket: s}
+		p.items[s.s] = item
 	}
-	if !exists {
-		p.items = append(p.items, pollItem{s, e, h})
+	if h == nil {
+		item.events = item.events ^ zmq.POLLOUT
+	} else {
+		item.events = item.events | zmq.POLLOUT
+	}
+	if item.events == 0 {
+		p.Unhandle(s)
+	} else {
+		item.handleOut = h
 	}
 }
 
-// HandleFunc adds a socket event handler to p.
+// HandleIn sets the function that will be called for each message that
+// arrives on s.
 //
-func (p *Poller) HandleFunc(s *Socket, e zmq.PollEvents, h func(*Event)) Handler {
-	handler := &socketHandlerFunc{h}
-	p.Handle(s, e, handler)
-	return handler
-}
-
-// Unhandle removes a handler from p for the given socket and socket events.
-//
-// If there are no remaining handlers for any event on this socket, the socket
-// itself will cease to be polled in p.
-//
-func (p *Poller) Unhandle(s *Socket, e zmq.PollEvents, h Handler) {
+func (p *Poller) HandleIn(s *Socket, h func([][]byte)) {
 	p.locker.Lock()
 	defer p.locker.Unlock()
-	index := -1
-	for i, existing := range p.items {
-		if existing.socket == s && existing.handler == h {
-			existing.events = existing.events & ^e
-			if existing.events == 0 {
-				index = i
-			}
-		}
+	item, ok := p.items[s.s]
+	if !ok {
+		item = &pollItem{socket: s}
+		p.items[s.s] = item
 	}
-	if index == len(p.items)-1 {
-		p.items = p.items[0:index]
-	} else if index >= 0 {
-		p.items = append(p.items[0:index], p.items[index+1:len(p.items)]...)
+	if h == nil {
+		item.events &= ^zmq.POLLIN
+	} else {
+		item.events |= zmq.POLLIN
+	}
+	if item.events == 0 {
+		p.Unhandle(s)
+	} else {
+		item.handleIn = h
 	}
 }
 
-// SetVerbose enables (or disables) logging to os.Stdout.
+// HandleOut sets the function that will be called when a message can be sent
+// on s with no delay.
 //
-func (p *Poller) SetVerbose(verbose bool) error {
-	if verbose == (p.logger != nil) {
-		return nil
+func (p *Poller) HandleOut(s *Socket, h func()) {
+	p.locker.Lock()
+	defer p.locker.Unlock()
+	item, ok := p.items[s.s]
+	if !ok {
+		item = &pollItem{socket: s}
+		p.items[s.s] = item
 	}
-	p.logf("poller.verbose = %t", verbose)
-	if verbose && p.logger == nil {
-		p.logger = log.New(os.Stdout, "", log.Lmicroseconds)
-	} else if !verbose {
-		p.logger = nil
+	if h == nil {
+		item.events = item.events ^ zmq.POLLOUT
+	} else {
+		item.events = item.events | zmq.POLLOUT
 	}
-	p.logf("poller.verbose = %t", p.logger != nil)
-	return nil
+	if item.events == 0 {
+		p.Unhandle(s)
+	} else {
+		item.handleOut = h
+	}
+}
+
+// Unhandle removes any handlers for s and stops polling s.
+//
+func (p *Poller) Unhandle(s *Socket) {
+	p.locker.Lock()
+	defer p.locker.Unlock()
+	if _, ok := p.items[s.s]; ok {
+		delete(p.items, s.s)
+	}
+}
+
+// SetLogger sets the logger that detailed messages will be sent to.
+//
+func (p *Poller) SetLogger(logger *log.Logger) {
+	p.logger = logger
 }
 
 func (p *Poller) logf(s string, args ...interface{}) {
@@ -172,7 +160,8 @@ func (p *Poller) logf(s string, args ...interface{}) {
 	}
 }
 
-// Run calls Poll until an error is returned, then returns that error.
+// Run repeatedly calls Poll with an infinite timeout until an error is
+// returned, then returns that error.
 //
 func (p *Poller) Run() error {
 	for {
@@ -193,27 +182,20 @@ func (p *Poller) Run() error {
 // or handling.
 //
 func (p *Poller) Poll(timeout time.Duration) (err error) {
+	p.locker.Lock()
+	defer p.locker.Unlock()
 
 	// This PollItems construction may become inefficient for large
 	// numbers of handlers.
 	baseItems := make(zmq.PollItems, 0, len(p.items))
-	for _, item := range p.items {
-		var exists bool
-		for _, base := range baseItems {
-			if base.Socket == item.socket.s {
-				base.Events = base.Events | item.events
-				exists = true
-			}
-		}
-		if !exists {
-			baseItems = append(baseItems, zmq.PollItem{
-				Socket: item.socket.s,
-				Events: item.events,
-			})
-		}
+	for s, item := range p.items {
+		baseItems = append(baseItems, zmq.PollItem{
+			Socket: s,
+			Events: item.events,
+		})
 	}
 
-	_, err = zmq.Poll(baseItems, timeout)
+	n, err := zmq.Poll(baseItems, timeout)
 
 	// Possible errors returned from Poll() are: ETERM, meaning a
 	// context was closed; EFAULT, meaning a mistake was made in
@@ -224,24 +206,31 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 		return err
 	}
 
-	p.logf("poller: events detected.")
+	if n > 0 {
+		p.logf("poller: events detected.")
 
-	// Check all other sockets, sending any available messages to
-	// their associated channels:
-	for _, base := range baseItems {
-		event := Event{
-			Events: base.REvents,
-		}
-		for _, item := range p.items {
-			if item.socket.s == base.Socket && (item.events&base.REvents) != 0 {
-				event.Socket = item.socket
-				item.handler.HandleEvent(&event)
-				if event.Fault != nil {
-					return event.Fault
+		// Check all other sockets, sending any available messages to
+		// their associated channels:
+		for _, base := range baseItems {
+			item := p.items[base.Socket]
+			if (base.Events&zmq.POLLIN) != 0 && item.handleIn != nil {
+				for {
+					m, err := base.Socket.RecvMultipart(zmq.DONTWAIT)
+					if err == syscall.EAGAIN {
+						break
+					} else if err != nil {
+						if item.handleErr != nil {
+							item.handleErr(err)
+						}
+						break
+					}
+					item.handleIn(m)
 				}
+			}
+			if (base.Events&zmq.POLLOUT) != 0 && item.handleOut != nil {
+				item.handleOut()
 			}
 		}
 	}
-
 	return nil
 }

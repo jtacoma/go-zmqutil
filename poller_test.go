@@ -52,10 +52,7 @@ func ExamplePoller() {
 
 	recv := make(chan string, 1)
 
-	handler := NewMessageHandler(func(e *Event, m [][]byte) {
-		recv <- string(m[0])
-	})
-	poller.Handle(pull, zmq.POLLIN, handler)
+	poller.HandleIn(pull, func(m [][]byte) { recv <- string(m[0]) })
 
 	push.Send([]byte("Hello!"), 0)
 
@@ -95,10 +92,7 @@ func TestPoller_Poll(t *testing.T) {
 	//poller.SetVerbose(true)
 	push.Send([]byte("test"), 0)
 	cpull = make(chan [][]byte, 2)
-	handler := NewMessageHandler(func(e *Event, m [][]byte) {
-		cpull <- m
-	})
-	poller.Handle(pull, zmq.POLLIN, handler)
+	poller.HandleIn(pull, func(m [][]byte) { cpull <- m })
 	poller.Poll(-1)
 	select {
 	case <-cpull:
