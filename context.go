@@ -112,7 +112,16 @@ func (c *Context) SetLinger(linger time.Duration) error {
 	return nil
 }
 
+// SetLogger sets the logger that will be used for trace logging.
+//
+func (c *Context) SetLogger(logger *log.Logger) {
+	c.logger = logger
+}
+
 // SetVerbose enables (or disables) logging to os.Stdout.
+//
+// When verbose is true and a logger has already been set through SetLogger,
+// this will have no effect.
 //
 func (c *Context) SetVerbose(verbose bool) error {
 	if c == nil {
@@ -123,7 +132,7 @@ func (c *Context) SetVerbose(verbose bool) error {
 	}
 	c.logf("verbose = %t", verbose)
 	if verbose && c.logger == nil {
-		c.logger = log.New(os.Stdout, "", log.Lmicroseconds)
+		c.SetLogger(log.New(os.Stdout, "", log.Lmicroseconds))
 	} else if !verbose {
 		c.logger = nil
 	}
