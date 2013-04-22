@@ -149,6 +149,7 @@ func (p *Poller) Unhandle(s *Socket) {
 //
 func (p *Poller) SetLogger(logger *log.Logger) {
 	p.logger = logger
+	p.logf("logger received.")
 }
 
 func (p *Poller) logf(s string, args ...interface{}) {
@@ -195,6 +196,7 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 		})
 	}
 
+	p.logf("poller: polling %d sockets for %s", len(baseItems), timeout)
 	n, err := zmq.Poll(baseItems, timeout)
 
 	// Possible errors returned from Poll() are: ETERM, meaning a
@@ -203,6 +205,7 @@ func (p *Poller) Poll(timeout time.Duration) (err error) {
 	// was delivered before any events were available.  Here, we
 	// treat all errors the same:
 	if err != nil {
+		p.logf("poller: error while polling: %s", err)
 		return err
 	}
 
