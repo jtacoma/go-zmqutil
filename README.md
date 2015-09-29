@@ -1,5 +1,7 @@
 # zmqutil
 
+**This project is no longer being maintained, nor is its dependency github.com/alecthomas/gozmq.**
+
 Package zmqutil implements some ØMQ (http://www.zeromq.org) abstractions
 and utilities.
 
